@@ -1,0 +1,26 @@
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+
+# Node.js
+node_modules/
+dist/
+.env
+
+# Application Specific
+BAU_Plagiarism_System.API/uploads/*
+!BAU_Plagiarism_System.API/uploads/.gitkeep
+
+# Temporary/Log files
+*.log
+*.txt
+!README.md
+!HUONG_DAN_SU_DUNG.md
+!HUONG_DAN_BULK_UPLOAD.md
+!BUILD_GUIDE.md
+!CreateDatabase.sql
