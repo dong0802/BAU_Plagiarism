@@ -19,8 +19,6 @@ BAU_Plagiarism_System.API/uploads/*
 # Temporary/Log files
 *.log
 *.txt
+*.md
 !README.md
-!HUONG_DAN_SU_DUNG.md
-!HUONG_DAN_BULK_UPLOAD.md
-!BUILD_GUIDE.md
 !CreateDatabase.sql
