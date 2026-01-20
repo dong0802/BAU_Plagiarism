@@ -42,6 +42,9 @@ try
     builder.Services.AddDbContext<BAUDbContext>(options =>
         options.UseSqlServer(connectionString));
 
+    // Register Infrastructure Services
+    builder.Services.AddScoped<IEmailService, EmailService>();
+
     // Register Business Services
     builder.Services.AddScoped<SimilarityChecker>();
     builder.Services.AddScoped<DocumentReader>();
@@ -86,6 +89,20 @@ try
             ValidAudience = jwtIssuerVal,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/api/documents"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     });
 

@@ -32,10 +32,31 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             // Get source document
             var sourceDoc = await _context.Documents
-                .FirstOrDefaultAsync(d => d.Id == dto.SourceDocumentId && d.IsActive);
+                .FirstOrDefaultAsync(d => d.Id == dto.SourceDocumentId);
 
             if (sourceDoc == null)
                 throw new Exception("Source document not found");
+
+            // Check Daily Limit
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null) throw new Exception("User not found");
+
+            // Reset counter if it's a new day
+            if (user.LastCheckResetDate == null || user.LastCheckResetDate.Value.Date < DateTime.Now.Date)
+            {
+                user.ChecksUsedToday = 0;
+                user.LastCheckResetDate = DateTime.Now;
+            }
+
+            // Check if student has remaining checks
+            if (user.Role == "Student" && user.ChecksUsedToday >= user.DailyCheckLimit)
+            {
+                throw new Exception($"Bạn đã hết lượt kiểm tra trong ngày hôm nay (Tối đa {user.DailyCheckLimit} lượt/ngày).");
+            }
+
+            // Increment checks
+            user.ChecksUsedToday++;
+            await _context.SaveChangesAsync();
 
             // Create plagiarism check record
             var plagiarismCheck = new PlagiarismCheck
@@ -160,7 +181,9 @@ namespace BAU_Plagiarism_System.Core.Services
                     MatchDetails = matchDetails.OrderByDescending(m => m.SimilarityPercentage).ToList(),
                     DetailedAnalysis = detailedDto,
                     Status = "Completed",
-                    CheckDate = plagiarismCheck.CheckDate
+                    CheckDate = plagiarismCheck.CheckDate,
+                    RemainingChecksToday = user.DailyCheckLimit - user.ChecksUsedToday,
+                    DailyCheckLimit = user.DailyCheckLimit
                 };
             }
             catch (Exception ex)
@@ -225,6 +248,15 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (check == null) return null;
 
+            // Reconstruct Detailed Analysis using stored matches for UI highlighting
+            var matchedDocs = check.Matches
+                .Select(m => m.MatchedDocument)
+                .Where(d => d != null)
+                .DistinctBy(d => d.Id)
+                .ToList();
+
+            var detailedResult = _similarityChecker.AnalyzeDetailed(check.SourceDocument.Content, matchedDocs);
+
             return new PlagiarismCheckDto
             {
                 Id = check.Id,
@@ -237,6 +269,21 @@ namespace BAU_Plagiarism_System.Core.Services
                 Status = check.Status,
                 TotalMatchedDocuments = check.TotalMatchedDocuments,
                 Notes = check.Notes,
+                DetailedAnalysis = new DetailedAnalysisDto
+                {
+                    OverallScore = (double)check.OverallSimilarityPercentage,
+                    Segments = detailedResult.Segments.Select(s => new SegmentDto
+                    {
+                        Text = s.Text,
+                        MatchedText = s.MatchedText,
+                        StartPosition = s.StartPosition,
+                        EndPosition = s.EndPosition,
+                        Score = s.Score,
+                        Source = s.Source,
+                        IsExcluded = s.IsExcluded,
+                        ExclusionReason = s.ExclusionReason
+                    }).ToList()
+                },
                 Matches = check.Matches.Select(m => new PlagiarismMatchDto
                 {
                     Id = m.Id,
@@ -311,6 +358,37 @@ namespace BAU_Plagiarism_System.Core.Services
                 SubjectStats = subjectStats
             };
         }
+
+        /// <summary>
+        /// Lấy danh sách kiểm tra có tỷ lệ đạo văn cao (Cảnh báo nóng)
+        /// </summary>
+        public async Task<List<PlagiarismCheckDto>> GetHighRiskChecksAsync(decimal threshold = 50.0m, int limit = 10)
+        {
+            var checks = await _context.PlagiarismChecks
+                .Include(p => p.SourceDocument)
+                .Include(p => p.User)
+                .Where(p => p.Status == "Completed" && p.OverallSimilarityPercentage >= threshold)
+                .OrderByDescending(p => p.OverallSimilarityPercentage)
+                .ThenByDescending(p => p.CheckDate)
+                .Take(limit)
+                .ToListAsync();
+
+            return checks.Select(p => new PlagiarismCheckDto
+            {
+                Id = p.Id,
+                SourceDocumentId = p.SourceDocumentId,
+                SourceDocumentTitle = p.SourceDocument.Title,
+                UserId = p.UserId,
+                UserName = p.User.FullName,
+                CheckDate = p.CheckDate,
+                OverallSimilarityPercentage = p.OverallSimilarityPercentage,
+                Status = p.Status,
+                TotalMatchedDocuments = p.TotalMatchedDocuments,
+                Notes = p.Notes,
+                Matches = new List<PlagiarismMatchDto>()
+            }).ToList();
+        }
+
 
         /// <summary>
         /// Tìm các đoạn văn trùng lặp

@@ -41,7 +41,12 @@ namespace BAU_Plagiarism_System.API.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var errorMessage = ex.Message;
+                if (ex.InnerException != null)
+                {
+                    errorMessage += " Details: " + ex.InnerException.Message;
+                }
+                return BadRequest(new { message = errorMessage });
             }
         }
 
@@ -82,6 +87,32 @@ namespace BAU_Plagiarism_System.API.Controllers
                 return BadRequest(new { message = "Current password is incorrect" });
 
             return Ok(new { message = "Password changed successfully" });
+        }
+
+        [HttpPost("forgot-password")]
+        [AllowAnonymous]
+        public async Task<ActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
+        {
+            var result = await _userService.ProcessForgotPasswordAsync(dto.Email);
+            
+            // For security, always return OK even if email not found
+            // but for this project we'll return based on actual result
+            if (!result)
+                return BadRequest(new { message = "Email không tồn tại trong hệ thống" });
+
+            return Ok(new { message = "Mã xác nhận đã được gửi về email của bạn" });
+        }
+
+        [HttpPost("reset-password")]
+        [AllowAnonymous]
+        public async Task<ActionResult> ResetPassword([FromBody] ResetPasswordWithCodeDto dto)
+        {
+            var result = await _userService.VerifyAndResetPasswordAsync(dto);
+            
+            if (!result)
+                return BadRequest(new { message = "Mã xác nhận không chính xác hoặc đã hết hạn" });
+
+            return Ok(new { message = "Mật khẩu đã được đặt lại thành công" });
         }
     }
 }

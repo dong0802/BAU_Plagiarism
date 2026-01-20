@@ -7,6 +7,7 @@ export interface DocumentUploadDto {
     semester?: string;
     year?: number;
     isPublic: boolean;
+    isActive?: boolean;
     file: File;
 }
 
@@ -43,6 +44,7 @@ const documentApi = {
         if (data.semester) formData.append('semester', data.semester);
         if (data.year) formData.append('year', data.year.toString());
         formData.append('isPublic', data.isPublic.toString());
+        if (data.isActive !== undefined) formData.append('isActive', data.isActive.toString());
 
         return axiosClient.post('/documents/upload', formData, {
             headers: {
@@ -58,6 +60,11 @@ const documentApi = {
     },
     getContent: (id: number): Promise<{ content: string }> => {
         return axiosClient.get(`/documents/${id}/content`);
+    },
+    getDownloadUrl: (id: number): string => {
+        const baseUrl = import.meta.env.VITE_API_URL || '/api';
+        const token = localStorage.getItem('token');
+        return `${baseUrl}/documents/${id}/download?token=${token}`;
     }
 };
 

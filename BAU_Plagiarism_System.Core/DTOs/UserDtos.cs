@@ -18,6 +18,11 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public bool IsActive { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime? LastLoginDate { get; set; }
+        
+        // Daily Check Limit (Credits System)
+        public int DailyCheckLimit { get; set; }
+        public int ChecksUsedToday { get; set; }
+        public int RemainingChecksToday => DailyCheckLimit - ChecksUsedToday;
     }
 
     public class CreateUserDto

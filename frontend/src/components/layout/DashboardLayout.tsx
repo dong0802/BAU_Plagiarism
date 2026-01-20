@@ -32,8 +32,8 @@ const DashboardLayout: React.FC = () => {
     };
 
     const userMenuItems = [
-        { key: 'profile', icon: <UserOutlined />, label: 'Thông tin cá nhân' },
-        { key: 'settings', icon: <SettingOutlined />, label: 'Cài đặt' },
+        { key: 'profile', icon: <UserOutlined />, label: 'Thông tin cá nhân', onClick: () => navigate('/settings') },
+        { key: 'settings', icon: <SettingOutlined />, label: 'Cài đặt', onClick: () => navigate('/settings') },
         { type: 'divider' },
         { key: 'logout', icon: <LogoutOutlined />, label: 'Đăng xuất', onClick: handleLogout },
     ];
@@ -51,13 +51,17 @@ const DashboardLayout: React.FC = () => {
                     zIndex: 1001
                 }}
             >
-                <div style={{
-                    height: 70,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderBottom: '1px solid #f0f0f0'
-                }}>
+                <div
+                    style={{
+                        height: 70,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderBottom: '1px solid #f0f0f0',
+                        cursor: 'pointer'
+                    }}
+                    onClick={() => navigate(user?.role === 'Student' ? '/check' : '/')}
+                >
                     <div style={{
                         width: 32, height: 32, background: '#003a8c', borderRadius: 6,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -73,12 +77,13 @@ const DashboardLayout: React.FC = () => {
                     selectedKeys={[location.pathname]}
                     style={{ borderRight: 0, padding: '16px 8px' }}
                     items={[
-                        {
+                        // Hide Dashboard for Students
+                        ...(user?.role !== 'Student' ? [{
                             key: '/',
                             icon: <DashboardOutlined />,
                             label: 'Tổng quan',
                             onClick: () => navigate('/')
-                        },
+                        }] : []),
                         {
                             key: '/check',
                             icon: <FileSearchOutlined />,
@@ -88,7 +93,7 @@ const DashboardLayout: React.FC = () => {
                         {
                             key: '/documents',
                             icon: <FileTextOutlined />,
-                            label: 'Kho tài liệu',
+                            label: user?.role === 'Student' ? 'Tài liệu của tôi' : 'Kho tài liệu',
                             onClick: () => navigate('/documents')
                         },
                         // Only show User Management for Admin

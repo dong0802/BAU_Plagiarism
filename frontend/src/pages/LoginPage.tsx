@@ -4,7 +4,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useDispatch } from 'react-redux';
 import { setCredentials } from '../store/slices/authSlice';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import axiosClient from '../api/axiosClient';
 
 const { Title, Text } = Typography;
@@ -22,7 +22,12 @@ const LoginPage: React.FC = () => {
             // response is already response.data due to axiosClient interceptor
             dispatch(setCredentials(response));
             message.success('Đăng nhập thành công!');
-            navigate('/');
+
+            if (response.user?.role === 'Student' || response.role === 'Student') {
+                navigate('/check');
+            } else {
+                navigate('/');
+            }
         } catch (error: any) {
             console.error('Login error:', error);
             message.error(error.message || 'Sai tài khoản hoặc mật khẩu');
@@ -104,7 +109,7 @@ const LoginPage: React.FC = () => {
 
                         <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between' }}>
                             <Checkbox>Ghi nhớ</Checkbox>
-                            <a href="#">Quên mật khẩu?</a>
+                            <Link to="/forgot-password">Quên mật khẩu?</Link>
                         </div>
 
                         <Form.Item>
@@ -114,7 +119,7 @@ const LoginPage: React.FC = () => {
                         </Form.Item>
 
                         <div style={{ textAlign: 'center' }}>
-                            <Text type="secondary">Chưa có tài khoản? <a href="#">Đăng ký ngay</a></Text>
+                            <Text type="secondary">Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link></Text>
                         </div>
                     </Form>
                 </Card>

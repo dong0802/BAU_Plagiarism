@@ -57,7 +57,7 @@ namespace BAU_Plagiarism_System.API.Data
             var users = new List<User>
             {
                 new User { Username = "admin", PasswordHash = UserService.HashPassword("admin123"), FullName = "Quản trị viên", Email = "admin@bau.edu.vn", Role = "Admin", FacultyId = faculties[0].Id },
-                new User { Username = "gv001", PasswordHash = UserService.HashPassword("gv001"), FullName = "TS. Nguyễn Văn An", Email = "nvan@bau.edu.vn", Role = "Lecturer", LecturerId = "GV001", FacultyId = faculties[0].Id, DepartmentId = departments[0].Id },
+                new User { Username = "gv001", PasswordHash = UserService.HashPassword("gv001"), FullName = "TS. Nguyễn Văn An", Email = "nvan@bau.edu.vn", Role = "Admin", LecturerId = "GV001", FacultyId = faculties[0].Id, DepartmentId = departments[0].Id },
                 new User { Username = "21a4010001", PasswordHash = UserService.HashPassword("student123"), FullName = "Nguyễn Văn A", Email = "21a4010001@sv.bau.edu.vn", Role = "Student", StudentId = "21A4010001", FacultyId = faculties[0].Id }
             };
             context.Users.AddRange(users);

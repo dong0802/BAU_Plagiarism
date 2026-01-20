@@ -1,20 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Typography, Input, Space, Button, Tag, Tooltip, message, Modal, Divider, Spin } from 'antd';
-import { SearchOutlined, DownloadOutlined, EyeOutlined, DeleteOutlined, FilePdfOutlined, UserOutlined, CalendarOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Table, Card, Typography, Input, Space, Button, Tag, Tooltip, message, Modal, Divider, Spin, Upload } from 'antd';
+import { SearchOutlined, DownloadOutlined, EyeOutlined, DeleteOutlined, FilePdfOutlined, UserOutlined, CalendarOutlined, FileTextOutlined, UploadOutlined, InboxOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { RootState } from '../store';
 import documentApi, { DocumentDto } from '../api/documentApi';
 
 const { Title, Text, Paragraph } = Typography;
+const { Dragger } = Upload;
 
 const DocumentListPage: React.FC = () => {
+    const { user } = useSelector((state: RootState) => state.auth);
+    const navigate = useNavigate();
     const [documents, setDocuments] = useState<DocumentDto[]>([]);
     const [loading, setLoading] = useState(false);
     const [searchText, setSearchText] = useState('');
+
+    const isStudent = user?.role === 'Student';
 
     // Detail Modal states
     const [detailVisible, setDetailVisible] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState<DocumentDto | null>(null);
     const [content, setContent] = useState<string>('');
     const [contentLoading, setContentLoading] = useState(false);
+
+    // Upload states
+    const [uploadVisible, setUploadVisible] = useState(false);
+    const [uploadingFiles, setUploadingFiles] = useState(false);
+    const [fileList, setFileList] = useState<any[]>([]);
 
     const fetchDocuments = async () => {
         setLoading(true);
@@ -25,6 +38,43 @@ const DocumentListPage: React.FC = () => {
             message.error('Không thể tải danh sách tài liệu');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleBatchUpload = async () => {
+        if (fileList.length === 0) {
+            message.warning('Vui lòng chọn ít nhất một file');
+            return;
+        }
+
+        setUploadingFiles(true);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const fileItem of fileList) {
+            try {
+                const file = fileItem.originFileObj || fileItem;
+                await documentApi.upload({
+                    file: file,
+                    title: file.name.replace(/\.[^/.]+$/, ""),
+                    documentType: 'Essay',
+                    isPublic: false
+                });
+                successCount++;
+            } catch (error) {
+                failCount++;
+            }
+        }
+
+        setUploadingFiles(false);
+        if (successCount > 0) {
+            message.success(`Đã tải lên thành công ${successCount} tài liệu`);
+            setFileList([]);
+            setUploadVisible(false);
+            fetchDocuments();
+        }
+        if (failCount > 0) {
+            message.error(`Thất bại ${failCount} tài liệu`);
         }
     };
 
@@ -42,8 +92,9 @@ const DocumentListPage: React.FC = () => {
         }
     };
 
-    const handleDownload = (id: number, fileName: string) => {
-        window.open(`${import.meta.env.VITE_API_URL || '/api'}/documents/${id}/download`, '_blank');
+    const handleDownload = (id: number) => {
+        const url = documentApi.getDownloadUrl(id);
+        window.open(url, '_blank');
     };
 
     const handlePrint = () => {
@@ -92,12 +143,13 @@ const DocumentListPage: React.FC = () => {
             key: 'subjectName',
             render: (val: string) => val || <Text type="secondary">N/A</Text>
         },
-        {
+        // Only show author if not student
+        ...(!isStudent ? [{
             title: 'Tác giả',
             dataIndex: 'userName',
             key: 'userName',
             render: (text: string) => <Space><UserOutlined style={{ fontSize: 12 }} />{text}</Space>
-        },
+        }] : []),
         {
             title: 'Ngày tải lên',
             dataIndex: 'uploadDate',
@@ -109,11 +161,18 @@ const DocumentListPage: React.FC = () => {
             key: 'action',
             render: (_: any, record: DocumentDto) => (
                 <Space size="middle">
+                    <Tooltip title="Kiểm tra đạo văn">
+                        <Button
+                            type="text"
+                            icon={<FileSearchOutlined style={{ color: '#722ed1' }} />}
+                            onClick={() => navigate('/check', { state: { sourceDocId: record.id, fileName: record.title } })}
+                        />
+                    </Tooltip>
                     <Tooltip title="Xem nội dung">
                         <Button type="text" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)} />
                     </Tooltip>
                     <Tooltip title="Tải xuống">
-                        <Button type="text" icon={<DownloadOutlined />} onClick={() => handleDownload(record.id, record.originalFileName)} />
+                        <Button type="text" icon={<DownloadOutlined />} onClick={() => handleDownload(record.id)} />
                     </Tooltip>
                     <Tooltip title="Xóa">
                         <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)} />
@@ -131,15 +190,20 @@ const DocumentListPage: React.FC = () => {
     return (
         <div className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                <Title level={2} className="gradient-text">Kho tài liệu lưu trữ</Title>
+                <Title level={2} className="gradient-text">{isStudent ? 'Tài liệu của tôi' : 'Kho tài liệu lưu trữ'}</Title>
                 <Space>
                     <Input
-                        placeholder="Tìm kiếm tài liệu, tác giả..."
+                        placeholder={isStudent ? "Tìm kiếm tài liệu..." : "Tìm kiếm tài liệu, tác giả..."}
                         prefix={<SearchOutlined />}
                         style={{ width: 300 }}
                         onChange={e => setSearchText(e.target.value)}
                     />
-                    <Button type="primary" icon={<DownloadOutlined />}>Xuất danh sách</Button>
+                    {isStudent && (
+                        <Button type="primary" icon={<UploadOutlined />} onClick={() => setUploadVisible(true)}>
+                            Tải lên tài liệu
+                        </Button>
+                    )}
+                    <Button icon={<DownloadOutlined />}>Xuất danh sách</Button>
                 </Space>
             </div>
 
@@ -153,6 +217,55 @@ const DocumentListPage: React.FC = () => {
                 />
             </Card>
 
+            {/* Batch Upload Modal */}
+            <Modal
+                title="Tải lên tài liệu mới"
+                open={uploadVisible}
+                onCancel={() => !uploadingFiles && setUploadVisible(false)}
+                footer={[
+                    <Button key="cancel" onClick={() => setUploadVisible(false)} disabled={uploadingFiles}>
+                        Hủy
+                    </Button>,
+                    <Button
+                        key="upload"
+                        type="primary"
+                        loading={uploadingFiles}
+                        onClick={handleBatchUpload}
+                    >
+                        Bắt đầu tải lên
+                    </Button>
+                ]}
+            >
+                <div style={{ marginBottom: 16 }}>
+                    <Text type="secondary">
+                        Bạn có thể tải lên một hoặc nhiều file (PDF, DOCX, TXT).
+                        Hệ thống sẽ tự động lưu vào kho tài liệu của bạn.
+                    </Text>
+                </div>
+                <Dragger
+                    multiple
+                    fileList={fileList}
+                    onRemove={(file) => {
+                        const index = fileList.indexOf(file);
+                        const newFileList = fileList.slice();
+                        newFileList.splice(index, 1);
+                        setFileList(newFileList);
+                    }}
+                    beforeUpload={(file) => {
+                        setFileList([...fileList, file]);
+                        return false; // Prevent automatic upload
+                    }}
+                >
+                    <p className="ant-upload-drag-icon">
+                        <InboxOutlined />
+                    </p>
+                    <p className="ant-upload-text">Nhấp hoặc kéo thả file vào vùng này để tải lên</p>
+                    <p className="ant-upload-hint">
+                        Hỗ trợ tải lên hàng loạt. File của bạn sẽ được bảo mật trong kho lưu trữ cá nhân.
+                    </p>
+                </Dragger>
+            </Modal>
+
             {/* Document Detail Modal */}
             <Modal
                 title={<Space><FileTextOutlined /> Chi tiết tài liệu</Space>}
@@ -165,7 +278,7 @@ const DocumentListPage: React.FC = () => {
                         key="download"
                         type="primary"
                         icon={<DownloadOutlined />}
-                        onClick={() => selectedDoc && handleDownload(selectedDoc.id, selectedDoc.originalFileName)}
+                        onClick={() => selectedDoc && handleDownload(selectedDoc.id)}
                     >
                         Tải xuống
                     </Button>,
@@ -217,4 +330,3 @@ const DocumentListPage: React.FC = () => {
 };
 
 export default DocumentListPage;
-

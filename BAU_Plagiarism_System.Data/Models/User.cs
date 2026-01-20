@@ -6,7 +6,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace BAU_Plagiarism_System.Data.Models
 {
     /// <summary>
-    /// Người dùng - User (Giảng viên và Sinh viên)
+    /// Người dùng - User (Giảng viên / Quản trị và Sinh viên)
     /// </summary>
     public class User
     {
@@ -23,7 +23,7 @@ namespace BAU_Plagiarism_System.Data.Models
 
         [Required]
         [StringLength(100)]
-        public string FullName { get; set; } = string.Empty; // Họ và tên
+        public string FullName { get; set; } = string.Empty; // Họ và tên   
 
         [Required]
         [EmailAddress]
@@ -36,13 +36,13 @@ namespace BAU_Plagiarism_System.Data.Models
 
         [Required]
         [StringLength(20)]
-        public string Role { get; set; } = "Student"; // "Student", "Lecturer", "Admin"
+        public string Role { get; set; } = "Student"; // "Student", "Admin"
 
         [StringLength(50)]
         public string? StudentId { get; set; } // Mã sinh viên (nếu là sinh viên)
 
         [StringLength(50)]
-        public string? LecturerId { get; set; } // Mã giảng viên (nếu là giảng viên)
+        public string? LecturerId { get; set; } // Mã giảng viên (nếu có - dành cho Admin là giảng viên)
 
         public int? FacultyId { get; set; } // Thuộc khoa nào
 
@@ -51,8 +51,17 @@ namespace BAU_Plagiarism_System.Data.Models
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedDate { get; set; } = DateTime.Now;
-
         public DateTime? LastLoginDate { get; set; }
+
+        [StringLength(10)]
+        public string? PasswordResetToken { get; set; } // Token/Code để quên mật khẩu
+
+        public DateTime? PasswordResetTokenExpires { get; set; } // Thời gian hết hạn token
+
+        // Daily Check Limit System (Credits)
+        public int DailyCheckLimit { get; set; } = 5; // Số lượt kiểm tra tối đa mỗi ngày (mặc định 5)
+        public int ChecksUsedToday { get; set; } = 0; // Số lượt đã sử dụng hôm nay
+        public DateTime? LastCheckResetDate { get; set; } // Ngày reset lần cuối
 
         // Navigation Properties
         [ForeignKey("FacultyId")]

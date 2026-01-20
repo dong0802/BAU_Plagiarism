@@ -24,6 +24,14 @@ namespace BAU_Plagiarism_System.API.Controllers
             [FromQuery] int? subjectId = null,
             [FromQuery] string? documentType = null)
         {
+            var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+
+            if (userRole == "Student")
+            {
+                userId = currentUserId;
+            }
+
             var documents = await _documentService.GetAllDocumentsAsync(userId, subjectId, documentType);
             return Ok(documents);
         }
@@ -40,7 +48,8 @@ namespace BAU_Plagiarism_System.API.Controllers
         [HttpPost("upload")]
         public async Task<ActionResult<DocumentDto>> UploadDocument([FromForm] IFormFile file, [FromForm] string title,
             [FromForm] string documentType = "Essay", [FromForm] int? subjectId = null,
-            [FromForm] string? semester = null, [FromForm] int? year = null, [FromForm] bool isPublic = false)
+            [FromForm] string? semester = null, [FromForm] int? year = null, 
+            [FromForm] bool isPublic = false, [FromForm] bool isActive = true)
         {
             try
             {
@@ -62,6 +71,7 @@ namespace BAU_Plagiarism_System.API.Controllers
                     Semester = semester,
                     Year = year,
                     IsPublic = isPublic,
+                    IsActive = isActive,
                     FileContent = fileContent,
                     FileName = file.FileName
                 };

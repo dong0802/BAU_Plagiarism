@@ -49,7 +49,7 @@ namespace BAU_Plagiarism_System.API.Controllers
             var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
-            if (userRole != "Admin" && userRole != "Lecturer")
+            if (userRole != "Admin")
             {
                 userId = currentUserId;
             }
@@ -72,7 +72,7 @@ namespace BAU_Plagiarism_System.API.Controllers
             var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
-            if (userRole != "Admin" && userRole != "Lecturer" && check.UserId != currentUserId)
+            if (userRole != "Admin" && check.UserId != currentUserId)
             {
                 return Forbid();
             }
@@ -84,13 +84,35 @@ namespace BAU_Plagiarism_System.API.Controllers
         /// Lấy thống kê đạo văn
         /// </summary>
         [HttpGet("statistics")]
-        [Authorize(Roles = "Admin,Lecturer")]
+        [Authorize(Roles = "Admin,Student")]
         public async Task<ActionResult<PlagiarismStatisticsDto>> GetStatistics(
             [FromQuery] int? subjectId = null,
             [FromQuery] int? userId = null)
         {
+            var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
+
+            // Students only see their own stats
+            if (userRole == "Student")
+            {
+                userId = currentUserId;
+            }
+
             var stats = await _plagiarismService.GetStatisticsAsync(subjectId, userId);
             return Ok(stats);
+        }
+
+        /// <summary>
+        /// Lấy danh sách kiểm tra có tỷ lệ đạo văn cao (Cảnh báo nóng)
+        /// </summary>
+        [HttpGet("high-risk")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<List<PlagiarismCheckDto>>> GetHighRiskChecks(
+            [FromQuery] decimal threshold = 50.0m,
+            [FromQuery] int limit = 10)
+        {
+            var checks = await _plagiarismService.GetHighRiskChecksAsync(threshold, limit);
+            return Ok(checks);
         }
     }
 }

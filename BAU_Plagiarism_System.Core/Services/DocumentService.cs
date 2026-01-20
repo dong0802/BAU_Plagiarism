@@ -93,6 +93,41 @@ namespace BAU_Plagiarism_System.Core.Services
 
         public async Task<DocumentDto> UploadDocumentAsync(int userId, DocumentUploadDto dto)
         {
+            // Check if user already uploaded this file recently (within 2 hours) to avoid duplicates in storage
+            var existingDoc = await _context.Documents
+                .Where(d => d.UserId == userId && 
+                           d.OriginalFileName == dto.FileName && 
+                           d.FileSize == dto.FileContent.Length &&
+                           d.UploadDate > DateTime.Now.AddHours(-2))
+                .OrderByDescending(d => d.UploadDate)
+                .FirstOrDefaultAsync();
+
+            if (existingDoc != null)
+            {
+                // Reuse existing document if found
+                await _context.Entry(existingDoc).Reference(d => d.User).LoadAsync();
+                if (existingDoc.SubjectId.HasValue)
+                    await _context.Entry(existingDoc).Reference(d => d.Subject).LoadAsync();
+
+                return new DocumentDto
+                {
+                    Id = existingDoc.Id,
+                    Title = existingDoc.Title,
+                    DocumentType = existingDoc.DocumentType,
+                    OriginalFileName = existingDoc.OriginalFileName,
+                    FileSize = existingDoc.FileSize,
+                    UserId = existingDoc.UserId,
+                    UserName = existingDoc.User.FullName,
+                    SubjectId = existingDoc.SubjectId,
+                    SubjectName = existingDoc.Subject?.Name,
+                    Semester = existingDoc.Semester,
+                    Year = existingDoc.Year,
+                    UploadDate = existingDoc.UploadDate,
+                    IsPublic = existingDoc.IsPublic,
+                    IsActive = existingDoc.IsActive
+                };
+            }
+
             // Save file to disk
             var fileName = $"{Guid.NewGuid()}_{dto.FileName}";
             var filePath = Path.Combine(_uploadPath, fileName);
@@ -125,6 +160,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 Semester = dto.Semester,
                 Year = dto.Year,
                 IsPublic = dto.IsPublic,
+                IsActive = dto.IsActive,
                 UploadDate = DateTime.Now
             };
 

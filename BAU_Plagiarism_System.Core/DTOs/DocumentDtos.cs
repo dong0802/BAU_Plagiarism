@@ -48,6 +48,7 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string? Semester { get; set; }
         public int? Year { get; set; }
         public bool IsPublic { get; set; } = false;
+        public bool IsActive { get; set; } = true;
         public byte[] FileContent { get; set; } = Array.Empty<byte>();
         public string FileName { get; set; } = string.Empty;
     }

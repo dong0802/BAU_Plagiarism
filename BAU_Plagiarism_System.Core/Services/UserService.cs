@@ -8,15 +8,17 @@ using System.Text;
 namespace BAU_Plagiarism_System.Core.Services
 {
     /// <summary>
-    /// Service quản lý người dùng (Giảng viên và Sinh viên)
+    /// Service quản lý người dùng (Giảng viên / Quản trị và Sinh viên)
     /// </summary>
     public class UserService
     {
         private readonly BAUDbContext _context;
+        private readonly IEmailService _emailService;
 
-        public UserService(BAUDbContext context)
+        public UserService(BAUDbContext context, IEmailService emailService)
         {
             _context = context;
+            _emailService = emailService;
         }
 
         public async Task<List<UserDto>> GetAllUsersAsync(string? role = null)
@@ -47,7 +49,9 @@ namespace BAU_Plagiarism_System.Core.Services
                     DepartmentName = u.Department != null ? u.Department.Name : null,
                     IsActive = u.IsActive,
                     CreatedDate = u.CreatedDate,
-                    LastLoginDate = u.LastLoginDate
+                    LastLoginDate = u.LastLoginDate,
+                    DailyCheckLimit = u.DailyCheckLimit,
+                    ChecksUsedToday = u.ChecksUsedToday
                 })
                 .ToListAsync();
         }
@@ -77,7 +81,9 @@ namespace BAU_Plagiarism_System.Core.Services
                 DepartmentName = user.Department?.Name,
                 IsActive = user.IsActive,
                 CreatedDate = user.CreatedDate,
-                LastLoginDate = user.LastLoginDate
+                LastLoginDate = user.LastLoginDate,
+                DailyCheckLimit = user.DailyCheckLimit,
+                ChecksUsedToday = user.ChecksUsedToday
             };
         }
 
@@ -106,19 +112,54 @@ namespace BAU_Plagiarism_System.Core.Services
                 DepartmentName = user.Department?.Name,
                 IsActive = user.IsActive,
                 CreatedDate = user.CreatedDate,
-                LastLoginDate = user.LastLoginDate
+                LastLoginDate = user.LastLoginDate,
+                DailyCheckLimit = user.DailyCheckLimit,
+                ChecksUsedToday = user.ChecksUsedToday
             };
         }
 
         public async Task<UserDto> CreateUserAsync(CreateUserDto dto)
         {
-            // Hash password
-            var passwordHash = HashPassword(dto.Password);
+            // Find any user with same username or email
+            var existingUserByUsername = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == dto.Username.ToLower());
+            if (existingUserByUsername != null && existingUserByUsername.IsActive)
+                 throw new Exception("Tên đăng nhập đã tồn tại trên hệ thống.");
 
+            var existingUserByEmail = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.ToLower());
+            if (existingUserByEmail != null && existingUserByEmail.IsActive)
+                throw new Exception("Email đã được sử dụng bởi một tài khoản khác.");
+
+            // If we found an inactive user (either by email or username), reactivate and update them
+            var targetUser = existingUserByEmail ?? existingUserByUsername;
+
+            if (targetUser != null && !targetUser.IsActive)
+            {
+                targetUser.Username = dto.Username;
+                targetUser.Email = dto.Email;
+                targetUser.FullName = dto.FullName;
+                targetUser.PasswordHash = HashPassword(dto.Password);
+                targetUser.Role = dto.Role;
+                targetUser.PhoneNumber = dto.PhoneNumber;
+                targetUser.StudentId = dto.StudentId;
+                targetUser.LecturerId = dto.LecturerId;
+                targetUser.FacultyId = dto.FacultyId;
+                targetUser.DepartmentId = dto.DepartmentId;
+                targetUser.IsActive = true;
+                targetUser.CreatedDate = DateTime.Now;
+
+                await _context.SaveChangesAsync();
+                
+                await _context.Entry(targetUser).Reference(u => u.Faculty).LoadAsync();
+                await _context.Entry(targetUser).Reference(u => u.Department).LoadAsync();
+                
+                return MapToDto(targetUser);
+            }
+
+            // Otherwise create new
             var user = new User
             {
                 Username = dto.Username,
-                PasswordHash = passwordHash,
+                PasswordHash = HashPassword(dto.Password),
                 FullName = dto.FullName,
                 Email = dto.Email,
                 PhoneNumber = dto.PhoneNumber,
@@ -127,7 +168,8 @@ namespace BAU_Plagiarism_System.Core.Services
                 LecturerId = dto.LecturerId,
                 FacultyId = dto.FacultyId,
                 DepartmentId = dto.DepartmentId,
-                CreatedDate = DateTime.Now
+                CreatedDate = DateTime.Now,
+                IsActive = true
             };
 
             _context.Users.Add(user);
@@ -152,7 +194,9 @@ namespace BAU_Plagiarism_System.Core.Services
                 DepartmentId = user.DepartmentId,
                 DepartmentName = user.Department?.Name,
                 IsActive = user.IsActive,
-                CreatedDate = user.CreatedDate
+                CreatedDate = user.CreatedDate,
+                DailyCheckLimit = user.DailyCheckLimit,
+                ChecksUsedToday = user.ChecksUsedToday
             };
         }
 
@@ -190,7 +234,9 @@ namespace BAU_Plagiarism_System.Core.Services
                 DepartmentName = user.Department?.Name,
                 IsActive = user.IsActive,
                 CreatedDate = user.CreatedDate,
-                LastLoginDate = user.LastLoginDate
+                LastLoginDate = user.LastLoginDate,
+                DailyCheckLimit = user.DailyCheckLimit,
+                ChecksUsedToday = user.ChecksUsedToday
             };
         }
 
@@ -230,7 +276,66 @@ namespace BAU_Plagiarism_System.Core.Services
             return true;
         }
 
+        public async Task<bool> ProcessForgotPasswordAsync(string email)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email && u.IsActive);
+            if (user == null) return false;
+
+            // Generate 6-digit code
+            var code = new Random().Next(100000, 999999).ToString();
+            
+            user.PasswordResetToken = code;
+            user.PasswordResetTokenExpires = DateTime.Now.AddMinutes(15);
+
+            await _context.SaveChangesAsync();
+
+            await _emailService.SendPasswordResetCodeAsync(user.Email, code);
+            return true;
+        }
+
+        public async Task<bool> VerifyAndResetPasswordAsync(ResetPasswordWithCodeDto dto)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => 
+                u.Email == dto.Email && 
+                u.PasswordResetToken == dto.Code &&
+                u.PasswordResetTokenExpires > DateTime.Now &&
+                u.IsActive);
+
+            if (user == null) return false;
+
+            user.PasswordHash = HashPassword(dto.NewPassword);
+            user.PasswordResetToken = null;
+            user.PasswordResetTokenExpires = null;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
         // ============= HELPER METHODS =============
+        private UserDto MapToDto(User user)
+        {
+            return new UserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                FullName = user.FullName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                Role = user.Role,
+                StudentId = user.StudentId,
+                LecturerId = user.LecturerId,
+                FacultyId = user.FacultyId,
+                FacultyName = user.Faculty?.Name,
+                DepartmentId = user.DepartmentId,
+                DepartmentName = user.Department?.Name,
+                IsActive = user.IsActive,
+                CreatedDate = user.CreatedDate,
+                LastLoginDate = user.LastLoginDate,
+                DailyCheckLimit = user.DailyCheckLimit,
+                ChecksUsedToday = user.ChecksUsedToday
+            };
+        }
+
         public static string HashPassword(string password)
         {
             using var sha256 = SHA256.Create();

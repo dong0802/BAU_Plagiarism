@@ -49,7 +49,7 @@ const UserManagementPage: React.FC = () => {
             // Mock data for demo if API fails
             const mockUsers: User[] = [
                 { id: 1, username: 'admin', fullName: 'Quản trị viên', email: 'admin@bau.edu.vn', role: 'Admin', isActive: true, createdDate: '2024-01-01' },
-                { id: 2, username: 'gv001', fullName: 'TS. Nguyễn Văn An', email: 'nvan@bau.edu.vn', role: 'Lecturer', lecturerId: 'GV001', isActive: true, createdDate: '2024-01-10' },
+                { id: 2, username: 'gv001', fullName: 'TS. Nguyễn Văn An', email: 'nvan@bau.edu.vn', role: 'Admin', lecturerId: 'GV001', isActive: true, createdDate: '2024-01-10' },
                 { id: 3, username: '21a4010001', fullName: 'Nguyễn Văn A', email: '21a4010001@sv.bau.edu.vn', role: 'Student', studentId: '21A4010001', isActive: true, createdDate: '2024-01-15' },
             ];
             setUsers(mockUsers);
@@ -126,9 +126,12 @@ const UserManagementPage: React.FC = () => {
             key: 'role',
             render: (role: string) => {
                 let color = 'blue';
-                if (role === 'Admin') color = 'gold';
-                if (role === 'Lecturer') color = 'cyan';
-                return <Tag color={color}>{role.toUpperCase()}</Tag>;
+                let label = role.toUpperCase();
+                if (role === 'Admin') {
+                    color = 'gold';
+                    label = 'GIẢNG VIÊN / QUẢN TRỊ';
+                }
+                return <Tag color={color}>{label}</Tag>;
             },
         },
         {
@@ -270,8 +273,7 @@ const UserManagementPage: React.FC = () => {
                             rules={[{ required: true, message: 'Vui lòng chọn vai trò' }]}
                         >
                             <Select>
-                                <Option value="Admin">Quản trị viên</Option>
-                                <Option value="Lecturer">Giảng viên</Option>
+                                <Option value="Admin">Giảng viên / Quản trị viên</Option>
                                 <Option value="Student">Sinh viên</Option>
                             </Select>
                         </Form.Item>
@@ -301,14 +303,13 @@ const UserManagementPage: React.FC = () => {
                                         </Form.Item>
                                     );
                                 }
-                                if (role === 'Lecturer') {
+                                if (role === 'Admin') {
                                     return (
                                         <Form.Item
                                             name="lecturerId"
-                                            label="Mã giảng viên"
-                                            rules={[{ required: true, message: 'Vui lòng nhập mã giảng viên' }]}
+                                            label="Mã giảng viên (nêu có)"
                                         >
-                                            <Input />
+                                            <Input placeholder="GVXXX" />
                                         </Form.Item>
                                     );
                                 }

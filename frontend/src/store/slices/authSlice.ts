@@ -6,6 +6,9 @@ interface User {
     fullName: string;
     role: 'Admin' | 'Lecturer' | 'Student';
     email: string;
+    dailyCheckLimit: number;
+    checksUsedToday: number;
+    remainingChecksToday: number;
 }
 
 interface AuthState {
@@ -43,8 +46,18 @@ const authSlice = createSlice({
             localStorage.removeItem('token');
             localStorage.removeItem('user');
         },
+        updateCredits: (
+            state,
+            action: PayloadAction<{ remainingChecksToday: number; dailyCheckLimit: number }>
+        ) => {
+            if (state.user) {
+                state.user.remainingChecksToday = action.payload.remainingChecksToday;
+                state.user.dailyCheckLimit = action.payload.dailyCheckLimit;
+                localStorage.setItem('user', JSON.stringify(state.user));
+            }
+        },
     },
 });
 
-export const { setCredentials, logout } = authSlice.actions;
+export const { setCredentials, logout, updateCredits } = authSlice.actions;
 export default authSlice.reducer;

@@ -4,6 +4,7 @@ using BAU_Plagiarism_System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BAU_Plagiarism_System.Data.Migrations
 {
     [DbContext(typeof(BAUDbContext))]
-    partial class BAUDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260120071339_AddPasswordReset")]
+    partial class AddPasswordReset
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -348,14 +351,8 @@ namespace BAU_Plagiarism_System.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("ChecksUsedToday")
-                        .HasColumnType("int");
-
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime2");
-
-                    b.Property<int>("DailyCheckLimit")
-                        .HasColumnType("int");
 
                     b.Property<int?>("DepartmentId")
                         .HasColumnType("int");
@@ -375,9 +372,6 @@ namespace BAU_Plagiarism_System.Data.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
-
-                    b.Property<DateTime?>("LastCheckResetDate")
-                        .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("LastLoginDate")
                         .HasColumnType("datetime2");

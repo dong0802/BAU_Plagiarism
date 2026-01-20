@@ -16,6 +16,8 @@ export interface PlagiarismCheckResultDto {
     };
     status: string;
     checkDate: string;
+    remainingChecksToday: number;
+    dailyCheckLimit: number;
 }
 
 export interface PlagiarismStatisticsDto {
@@ -41,6 +43,9 @@ const plagiarismApi = {
     },
     getStatistics: (params?: any): Promise<PlagiarismStatisticsDto> => {
         return axiosClient.get('/plagiarism/statistics', { params });
+    },
+    getHighRisk: (threshold: number = 50, limit: number = 10): Promise<any[]> => {
+        return axiosClient.get('/plagiarism/high-risk', { params: { threshold, limit } });
     }
 };
 

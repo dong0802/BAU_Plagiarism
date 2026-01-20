@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import { Card, Upload, message, Button, Typography, Steps, Row, Col, Progress, List, Tag, Divider, Space, Badge, Statistic } from 'antd';
-import { InboxOutlined, FileSearchOutlined, CheckCircleOutlined, InfoCircleOutlined, EyeOutlined, WarningOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { InboxOutlined, FileSearchOutlined, CheckCircleOutlined, InfoCircleOutlined, EyeOutlined, WarningOutlined, ArrowLeftOutlined, DownloadOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import documentApi from '../api/documentApi';
 import plagiarismApi from '../api/plagiarismApi';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '../store';
+import { updateCredits, logout } from '../store/slices/authSlice';
 
 const { Dragger } = Upload;
 const { Title, Text, Paragraph } = Typography;
@@ -13,80 +17,159 @@ interface Match {
     source: string;
     similarity: number;
     text: string;
-    startIndex: number;
-    endIndex: number;
-    severity: 'high' | 'medium' | 'low';
+    startIndex?: number;
+    endIndex?: number;
+    severity?: 'high' | 'medium' | 'low';
+    author?: string;
 }
 
 const PlagiarismCheckPage: React.FC = () => {
+    const { user } = useSelector((state: RootState) => state.auth);
+    const dispatch = useDispatch();
     const [currentStep, setCurrentStep] = useState(0);
     const [uploading, setUploading] = useState(false);
     const [result, setResult] = useState<any>(null);
+    const [sourceDocId, setSourceDocId] = useState<number | null>(null);
     const [fullText, setFullText] = useState<string>("");
     const [activeMatchId, setActiveMatchId] = useState<number | null>(null);
     const [pendingFile, setPendingFile] = useState<File | null>(null);
     const [pendingFileName, setPendingFileName] = useState<string>("");
     const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+    const [history, setHistory] = useState<any[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [loadingStatus, setLoadingStatus] = useState("Đang khởi tạo...");
+    const [checkInfo, setCheckInfo] = useState<any>(null);
+    const location = useLocation();
+    const { id } = useParams<{ id: string }>();
 
-    const resetAnalysis = () => {
-        setCurrentStep(0);
-        setResult(null);
-        setFullText("");
-        setPendingFile(null);
-        setPendingFileName("");
-        setActiveMatchId(null);
-        setSelectedMatch(null);
-        setUploading(false);
-    };
-
-    const beforeUpload = (file: File) => {
-        const isSupported = file.name.toLowerCase().endsWith('.txt') ||
-            file.name.toLowerCase().endsWith('.docx') ||
-            file.name.toLowerCase().endsWith('.pdf');
-
-        if (!isSupported) {
-            message.warning("Định dạng file không hỗ trợ. Vui lòng chọn .txt, .docx hoặc .pdf");
-            return false;
+    useEffect(() => {
+        fetchHistory();
+        if (id) {
+            viewDetailFromHistory(parseInt(id));
         }
+    }, [id]);
 
-        setPendingFile(file);
-        setPendingFileName(file.name);
-        message.success(`Đã chọn file ${file.name} thành công!`);
-
-        return false; // Stop Ant Design from performing a real POST request
+    const fetchHistory = async () => {
+        setHistoryLoading(true);
+        try {
+            const data = await plagiarismApi.getHistory({ limit: 5 });
+            setHistory(data);
+        } catch (error) {
+            console.error('Error fetching history:', error);
+        } finally {
+            setHistoryLoading(false);
+        }
     };
 
-    const handlePrint = () => {
-        window.print();
-    };
-
-    const startAnalysis = async () => {
-        if (!pendingFile) return;
-
+    const viewDetailFromHistory = async (checkId: number) => {
         setUploading(true);
         setCurrentStep(1);
+        setProgress(30);
+        setLoadingStatus("Đang tải kết quả từ lịch sử...");
 
         try {
-            // 1. Upload document and extract text
-            const uploadResult = await documentApi.upload({
-                file: pendingFile,
-                title: pendingFileName,
-                documentType: 'Essay',
-                isPublic: false
-            });
+            const detail = await plagiarismApi.getDetail(checkId);
+            setProgress(60);
 
-            // Get the extracted content to show on screen
-            const contentResult = await documentApi.getContent(uploadResult.id);
+            // Get original document text
+            const contentResult = await documentApi.getContent(detail.sourceDocumentId);
             setFullText(contentResult.content);
+            setPendingFileName(detail.sourceDocumentTitle);
+            setSourceDocId(detail.sourceDocumentId);
 
-            // 2. Start plagiarism check
-            const checkResult = await plagiarismApi.check({
-                sourceDocumentId: uploadResult.id,
-                notes: `Checked from web UI: ${pendingFileName}`
+            // Map detail results to frontend format
+            const segments = (detail.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
+                id: index,
+                text: seg.text,
+                score: seg.score,
+                source: seg.source,
+                matchedText: seg.matchedText,
+                isExcluded: seg.isExcluded,
+                exclusionReason: seg.exclusionReason,
+                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
+            }));
+
+            const matches = (detail.matches || []).map((m: any, idx: number) => ({
+                id: idx,
+                source: m.matchedDocumentTitle,
+                similarity: m.similarityScore,
+                text: m.matchedText,
+                author: "",
+                severity: m.similarityScore > 50 ? 'high' : (m.similarityScore > 20 ? 'medium' : 'low')
+            }));
+
+            setResult({
+                score: detail.overallSimilarityPercentage,
+                matchedDocs: detail.totalMatchedDocuments,
+                detailedAnalysis: { segments },
+                matches: matches
             });
 
-            // 3. Map backend results to frontend format
-            const segments = checkResult.detailedAnalysis.segments.map((seg, index) => ({
+            setCheckInfo({
+                userName: detail.userName,
+                checkDate: detail.checkDate,
+                fileName: detail.sourceDocumentTitle
+            });
+
+            setProgress(100);
+            setLoadingStatus("Hoàn tất!");
+
+            setTimeout(() => {
+                setCurrentStep(2);
+            }, 500);
+
+        } catch (error) {
+            console.error('Error loading detail:', error);
+            message.error('Không thể tải chi tiết kết quả');
+            setCurrentStep(0);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    useEffect(() => {
+        const state = location.state as { sourceDocId?: number, fileName?: string };
+        if (state?.sourceDocId) {
+            setSourceDocId(state.sourceDocId);
+            setPendingFileName(state.fileName || "Tài liệu hệ thống");
+            startAnalysisFromId(state.sourceDocId, state.fileName || "Tài liệu hệ thống");
+        }
+    }, [location.state]);
+
+    const startAnalysisFromId = async (id: number, fileName: string) => {
+        setUploading(true);
+        setCurrentStep(1);
+        setProgress(10);
+        setLoadingStatus("Đang truy xuất tài liệu từ hệ thống...");
+
+        const interval = setInterval(() => {
+            setProgress(prev => {
+                if (prev < 40) return prev + 3;
+                if (prev < 70) return prev + 2;
+                if (prev < 95) return prev + 1;
+                return prev;
+            });
+        }, 600);
+
+        try {
+            // 2. Perform Plagiarism Analysis directly
+            setLoadingStatus("Đang so khớp với 10 triệu+ tài liệu trong thư viện BAU và Internet...");
+            const checkResult = await plagiarismApi.check({
+                sourceDocumentId: id,
+                notes: `Checked from web UI (Library): ${fileName}`
+            });
+
+            // 3. Get document text content
+            setLoadingStatus("Đang tải dữ liệu văn bản...");
+            const contentResult = await documentApi.getContent(id);
+            setFullText(contentResult.content);
+            setPendingFileName(fileName);
+
+            // 4. Map backend results to frontend format
+            setLoadingStatus("Đang phân tích cấu trúc trùng khớp...");
+            setProgress(90);
+            const segments = (checkResult.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
                 id: index,
                 text: seg.text,
                 score: seg.score,
@@ -112,8 +195,186 @@ const PlagiarismCheckPage: React.FC = () => {
                 matches: matches
             });
 
-            setCurrentStep(2);
+            setCheckInfo({
+                userName: user?.fullName,
+                checkDate: new Date().toISOString(),
+                fileName: pendingFileName
+            });
+
+            clearInterval(interval);
+            setProgress(100);
+            setLoadingStatus("Hoàn tất!");
+
+            setTimeout(() => {
+                setCurrentStep(2);
+                fetchHistory(); // Refresh history
+                // Update global credits state
+                dispatch(updateCredits({
+                    remainingChecksToday: checkResult.remainingChecksToday,
+                    dailyCheckLimit: checkResult.dailyCheckLimit
+                }));
+            }, 500);
         } catch (error: any) {
+            clearInterval(interval);
+            console.error('Analysis error:', error);
+            message.error(error.message || 'Lỗi phân tích tài liệu');
+            setCurrentStep(0);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const resetAnalysis = () => {
+        setCurrentStep(0);
+        setResult(null);
+        setFullText("");
+        setPendingFile(null);
+        setPendingFileName("");
+        setActiveMatchId(null);
+        setSelectedMatch(null);
+        setUploading(false);
+        setSourceDocId(null);
+    };
+
+    const beforeUpload = (file: File) => {
+        const isSupported = file.name.toLowerCase().endsWith('.txt') ||
+            file.name.toLowerCase().endsWith('.docx') ||
+            file.name.toLowerCase().endsWith('.pdf');
+
+        if (!isSupported) {
+            message.warning("Định dạng file không hỗ trợ. Vui lòng chọn .txt, .docx hoặc .pdf");
+            return false;
+        }
+
+        setPendingFile(file);
+        setPendingFileName(file.name);
+        message.success(`Đã chọn file ${file.name} thành công!`);
+
+        return false; // Stop Ant Design from performing a real POST request
+    };
+
+    const handlePrint = () => {
+        window.print();
+    };
+
+    const downloadTextReport = () => {
+        if (!result) return;
+
+        let reportText = `BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN\n`;
+        reportText += `--------------------------------\n`;
+        reportText += `Tên tài liệu: ${pendingFileName}\n`;
+        reportText += `Ngày kiểm tra: ${new Date().toLocaleString('vi-VN')}\n`;
+        reportText += `Tỷ lệ trùng khớp: ${result.score}%\n`;
+        reportText += `Số nguồn trùng khớp: ${result.matchedDocs}\n\n`;
+        reportText += `DANH SÁCH CÁC NGUỒN TRÙNG KHỚP:\n`;
+
+        result.matches.forEach((m: any, idx: number) => {
+            reportText += `${idx + 1}. [${m.similarity}%] ${m.source}\n`;
+        });
+
+        const blob = new Blob([reportText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `Bao_Cao_Dao_Van_${pendingFileName.replace(/\.[^/.]+$/, "")}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const startAnalysis = async () => {
+        if (!pendingFile) return;
+
+        setUploading(true);
+        setCurrentStep(1);
+        setProgress(5);
+        setLoadingStatus("Đang chuẩn bị tệp tin...");
+
+        const interval = setInterval(() => {
+            setProgress(prev => {
+                if (prev < 30) return prev + 5;
+                if (prev < 60) return prev + 2;
+                if (prev < 92) return prev + 1;
+                return prev;
+            });
+        }, 500);
+
+        try {
+            // 1. Upload document (as inactive so it doesn't show in library)
+            setLoadingStatus("Đang tải tài liệu lên máy chủ BAU...");
+            const uploadResult = await documentApi.upload({
+                file: pendingFile,
+                title: pendingFileName,
+                documentType: 'Essay',
+                isPublic: false,
+                isActive: false // Don't show in repository
+            });
+            setSourceDocId(uploadResult.id);
+            setProgress(35);
+
+            // Get the extracted content to show on screen
+            setLoadingStatus("Đang trích xuất nội dung văn bản...");
+            const contentResult = await documentApi.getContent(uploadResult.id);
+            setFullText(contentResult.content);
+            setProgress(50);
+
+            // 2. Start plagiarism check
+            setLoadingStatus("Đang đối soát dữ liệu với các nguồn học thuật...");
+            const checkResult = await plagiarismApi.check({
+                sourceDocumentId: uploadResult.id,
+                notes: `Checked from web UI: ${pendingFileName}`
+            });
+
+            // 3. Map backend results to frontend format
+            setLoadingStatus("Đang xử lý kết quả phân tích...");
+            setProgress(90);
+            const segments = (checkResult.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
+                id: index,
+                text: seg.text,
+                score: seg.score,
+                source: seg.source,
+                matchedText: seg.matchedText,
+                isExcluded: seg.isExcluded,
+                exclusionReason: seg.exclusionReason,
+                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
+            }));
+
+            const matches = checkResult.matchDetails.map((m, idx) => ({
+                id: idx,
+                source: m.matchedDocumentTitle,
+                similarity: m.similarityPercentage,
+                text: m.textMatches?.[0]?.matchedText || "",
+                author: m.author
+            }));
+
+            setResult({
+                score: checkResult.overallSimilarityPercentage,
+                matchedDocs: checkResult.totalMatchedDocuments,
+                detailedAnalysis: { segments },
+                matches: matches
+            });
+
+            setCheckInfo({
+                userName: user?.fullName,
+                checkDate: new Date().toISOString(),
+                fileName: pendingFileName
+            });
+
+            clearInterval(interval);
+            setProgress(100);
+            setLoadingStatus("Sẵn sàng hiển thị kết quả!");
+
+            setTimeout(() => {
+                setCurrentStep(2);
+                fetchHistory(); // Refresh history
+                // Update global credits state
+                dispatch(updateCredits({
+                    remainingChecksToday: checkResult.remainingChecksToday,
+                    dailyCheckLimit: checkResult.dailyCheckLimit
+                }));
+            }, 600);
+        } catch (error: any) {
+            clearInterval(interval);
             message.error(`Lỗi khi kiểm tra đạo văn: ${error}`);
             setCurrentStep(0);
         } finally {
@@ -181,7 +442,7 @@ const PlagiarismCheckPage: React.FC = () => {
                         key={idx}
                         className={className}
                         onClick={() => {
-                            const match = result.matches.find((m: any) => m.source === seg.source);
+                            const match = (result?.matches || []).find((m: any) => m.source === seg.source);
                             if (match) {
                                 setSelectedMatch(match);
                                 setActiveMatchId(seg.id);
@@ -246,6 +507,20 @@ const PlagiarismCheckPage: React.FC = () => {
                             </div>
                         </Dragger>
 
+                        {user?.role === 'Student' && (
+                            <div style={{ marginTop: 24, textAlign: 'center' }}>
+                                <Card size="small" style={{ display: 'inline-block', background: (user.remainingChecksToday || 0) > 0 ? '#f6ffed' : '#fff2e8', border: 'none' }}>
+                                    <Space>
+                                        <ClockCircleOutlined />
+                                        <Text>Lượt kiểm tra hôm nay: </Text>
+                                        <Text strong style={{ color: (user.remainingChecksToday || 0) > 0 ? '#52c41a' : '#ff4d4f' }}>
+                                            {user.remainingChecksToday ?? 0}/{user.dailyCheckLimit ?? 5}
+                                        </Text>
+                                    </Space>
+                                </Card>
+                            </div>
+                        )}
+
                         {pendingFile && (
                             <div style={{ textAlign: 'center', marginTop: 30 }}>
                                 <Button
@@ -255,9 +530,53 @@ const PlagiarismCheckPage: React.FC = () => {
                                     className="gradient-btn"
                                     onClick={startAnalysis}
                                     style={{ height: 50, padding: '0 40px', fontSize: 18 }}
+                                    disabled={user?.role === 'Student' && (user.remainingChecksToday === 0)}
                                 >
-                                    Bắt đầu kiểm tra đạo văn
+                                    {user?.role === 'Student' && user.remainingChecksToday === 0 ? "Đã hết lượt kiểm tra hôm nay" : "Bắt đầu kiểm tra đạo văn"}
                                 </Button>
+                            </div>
+                        )}
+                        {/* Recent History Section */}
+                        {history.length > 0 && (
+                            <div style={{ marginTop: 40, textAlign: 'left' }}>
+                                <Divider orientation="left">
+                                    <Space><HistoryOutlined /> Lịch sử kiểm tra gần đây</Space>
+                                </Divider>
+                                <List
+                                    loading={historyLoading}
+                                    dataSource={history}
+                                    renderItem={(item) => (
+                                        <List.Item
+                                            className="glass-card"
+                                            style={{ marginBottom: 12, padding: 15, border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff' }}
+                                            actions={[
+                                                <Button
+                                                    type="primary"
+                                                    ghost
+                                                    icon={<EyeOutlined />}
+                                                    onClick={() => viewDetailFromHistory(item.id)}
+                                                >
+                                                    Xem lại
+                                                </Button>
+                                            ]}
+                                        >
+                                            <List.Item.Meta
+                                                avatar={<ClockCircleOutlined style={{ color: '#8c8c8c', marginTop: 4 }} />}
+                                                title={<Text strong>{item.sourceDocumentTitle}</Text>}
+                                                description={
+                                                    <Space split={<Divider type="vertical" />}>
+                                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                                            {new Date(item.checkDate).toLocaleString('vi-VN')}
+                                                        </Text>
+                                                        <Tag color={item.overallSimilarityPercentage > 20 ? 'volcano' : 'green'}>
+                                                            {item.overallSimilarityPercentage.toFixed(1)}% Trùng khớp
+                                                        </Tag>
+                                                    </Space>
+                                                }
+                                            />
+                                        </List.Item>
+                                    )}
+                                />
                             </div>
                         )}
                     </motion.div>
@@ -267,7 +586,7 @@ const PlagiarismCheckPage: React.FC = () => {
                     <div style={{ textAlign: 'center', padding: '60px 0' }}>
                         <Progress
                             type="circle"
-                            percent={currentStep === 1 ? 75 : 100}
+                            percent={progress}
                             strokeColor={{
                                 '0%': '#108ee9',
                                 '100%': '#87d068',
@@ -275,8 +594,12 @@ const PlagiarismCheckPage: React.FC = () => {
                             status="active"
                         />
                         <div style={{ marginTop: 24 }}>
-                            <Title level={4}>Hệ thống đang đối soát dữ liệu...</Title>
-                            <Text type="secondary">Chúng tôi đang quét hơn 10 triệu tài liệu trong thư viện BAU và Internet.</Text>
+                            <Title level={4}>{loadingStatus}</Title>
+                            <Text type="secondary">
+                                {progress < 40 ? "Đang chuẩn bị dữ liệu..." :
+                                    progress < 80 ? "Chúng tôi đang so khớp với hàng triệu tài liệu..." :
+                                        "Sắp hoàn tất, đang tổng hợp báo cáo chi tiết..."}
+                            </Text>
                         </div>
                     </div>
                 )}
@@ -296,8 +619,24 @@ const PlagiarismCheckPage: React.FC = () => {
                                             <Text type="secondary">Nguồn trùng khớp:</Text>
                                             <Title level={4} style={{ margin: 0 }}>{result.matchedDocs} nguồn</Title>
                                         </div>
+                                        {checkInfo && (
+                                            <>
+                                                <Divider type="vertical" style={{ height: 40 }} />
+                                                <div>
+                                                    <Text type="secondary">Người nộp:</Text>
+                                                    <div style={{ fontWeight: 'bold' }}>{checkInfo.userName}</div>
+                                                </div>
+                                                <Divider type="vertical" style={{ height: 40 }} />
+                                                <div>
+                                                    <Text type="secondary">Ngày nộp:</Text>
+                                                    <div style={{ fontSize: 13 }}>{new Date(checkInfo.checkDate).toLocaleString('vi-VN')}</div>
+                                                </div>
+                                            </>
+                                        )}
                                     </Space>
                                     <Space>
+                                        <Button icon={<DownloadOutlined />} onClick={() => sourceDocId && window.open(documentApi.getDownloadUrl(sourceDocId), '_blank')}>Tải xuống file gốc</Button>
+                                        <Button icon={<FileTextOutlined />} onClick={downloadTextReport}>Tải báo cáo chi tiết</Button>
                                         <Button icon={<EyeOutlined />} onClick={handlePrint}>Xuất báo cáo (In)</Button>
                                         <Button danger type="primary" onClick={resetAnalysis}>Xoá & Kiểm tra file khác</Button>
                                     </Space>
@@ -348,7 +687,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                                         onClick={() => {
                                                             setSelectedMatch(item);
                                                             // For highlighting on the left
-                                                            const matchIndex = result.detailedAnalysis.segments.findIndex((s: any) => s.source === item.source);
+                                                            const matchIndex = (result?.detailedAnalysis?.segments || []).findIndex((s: any) => s.source === item.source);
                                                             if (matchIndex !== -1) {
                                                                 setActiveMatchId(matchIndex);
                                                                 const element = document.getElementById(`match-${matchIndex}`);

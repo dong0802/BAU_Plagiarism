@@ -43,6 +43,14 @@ namespace BAU_Plagiarism_System.Core.Services
 
             // Update last login
             user.LastLoginDate = DateTime.Now;
+
+            // Daily Check Limit Reset handle on login too
+            if (user.LastCheckResetDate == null || user.LastCheckResetDate.Value.Date < DateTime.Now.Date)
+            {
+                user.ChecksUsedToday = 0;
+                user.LastCheckResetDate = DateTime.Now;
+            }
+
             await _context.SaveChangesAsync();
 
             // Generate JWT token
@@ -67,7 +75,9 @@ namespace BAU_Plagiarism_System.Core.Services
                     DepartmentName = user.Department?.Name,
                     IsActive = user.IsActive,
                     CreatedDate = user.CreatedDate,
-                    LastLoginDate = user.LastLoginDate
+                    LastLoginDate = user.LastLoginDate,
+                    DailyCheckLimit = user.DailyCheckLimit,
+                    ChecksUsedToday = user.ChecksUsedToday
                 }
             };
         }

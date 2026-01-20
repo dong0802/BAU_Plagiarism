@@ -14,6 +14,7 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int TotalMatchedDocuments { get; set; }
         public string? Notes { get; set; }
         public List<PlagiarismMatchDto> Matches { get; set; } = new();
+        public DetailedAnalysisDto? DetailedAnalysis { get; set; }
     }
 
     public class PlagiarismMatchDto
@@ -42,6 +43,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public DetailedAnalysisDto? DetailedAnalysis { get; set; }
         public string Status { get; set; } = "Completed";
         public DateTime CheckDate { get; set; }
+
+        // Daily limits info
+        public int RemainingChecksToday { get; set; }
+        public int DailyCheckLimit { get; set; }
     }
 
     public class MatchDetailDto
