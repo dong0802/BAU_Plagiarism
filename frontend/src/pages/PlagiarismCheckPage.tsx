@@ -139,7 +139,7 @@ const PlagiarismCheckPage: React.FC = () => {
                 setLoadingStatus("Đang phân tích AI và ngữ nghĩa...");
                 setProgress(prev => Math.min(96, prev + 0.2));
             } else {
-                setLoadingStatus("Đang hoàn thiện báo cáo chi tiết...");
+                setLoadingStatus("Đang hoàn thiện kết quả phân tích...");
                 setProgress(prev => Math.min(98, prev + 0.1));
             }
 
@@ -340,30 +340,6 @@ const PlagiarismCheckPage: React.FC = () => {
         window.print();
     };
 
-    const downloadTextReport = () => {
-        if (!result) return;
-
-        let reportText = `BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN\n`;
-        reportText += `--------------------------------\n`;
-        reportText += `Tên tài liệu: ${pendingFileName}\n`;
-        reportText += `Ngày kiểm tra: ${new Date().toLocaleString('vi-VN')}\n`;
-        reportText += `Tỷ lệ trùng khớp: ${result.score}%\n`;
-        reportText += `Số nguồn trùng khớp: ${result.matchedDocs}\n\n`;
-        reportText += `DANH SÁCH CÁC NGUỒN TRÙNG KHỚP:\n`;
-
-        result.matches.forEach((m: any, idx: number) => {
-            reportText += `${idx + 1}. [${m.similarity}%] ${m.source}\n`;
-        });
-
-        const blob = new Blob([reportText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Bao_Cao_Dao_Van_${pendingFileName.replace(/\.[^/.]+$/, "")}.txt`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
 
     const startAnalysis = async () => {
         if (inputType === 'file' && !pendingFile) return;
@@ -731,7 +707,7 @@ const PlagiarismCheckPage: React.FC = () => {
                             <Text type="secondary">
                                 {progress < 40 ? "Đang chuẩn bị dữ liệu..." :
                                     progress < 80 ? "Chúng tôi đang so khớp với hàng triệu tài liệu..." :
-                                        "Sắp hoàn tất, đang tổng hợp báo cáo chi tiết..."}
+                                        "Sắp hoàn tất, đang tổng hợp kết quả phân tích..."}
                             </Text>
                         </div>
                     </div>
@@ -841,20 +817,6 @@ const PlagiarismCheckPage: React.FC = () => {
                                                     }}
                                                 >
                                                     Tải xuống file gốc
-                                                </Button>
-                                                <Button
-                                                    block
-                                                    size="large"
-                                                    icon={<FileTextOutlined />}
-                                                    onClick={downloadTextReport}
-                                                    style={{
-                                                        background: 'rgba(255,255,255,0.15)',
-                                                        border: '1px solid rgba(255,255,255,0.3)',
-                                                        color: '#fff',
-                                                        fontWeight: 500
-                                                    }}
-                                                >
-                                                    Tải báo cáo chi tiết
                                                 </Button>
                                                 <Button
                                                     block
