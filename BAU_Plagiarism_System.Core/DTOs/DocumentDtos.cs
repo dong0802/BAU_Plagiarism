@@ -52,4 +52,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public byte[] FileContent { get; set; } = Array.Empty<byte>();
         public string FileName { get; set; } = string.Empty;
     }
+
+    public class DocumentTextDto : CreateDocumentDto
+    {
+        public string Content { get; set; } = string.Empty;
+        public bool IsActive { get; set; } = true;
+    }
 }

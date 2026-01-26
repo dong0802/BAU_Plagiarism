@@ -4,6 +4,9 @@ using BAU_Plagiarism_System.Core.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Hangfire;
+using Hangfire.SqlServer;
+using Hangfire.Dashboard;
 
 try 
 {
@@ -44,6 +47,7 @@ try
 
     // Register Infrastructure Services
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddHttpClient(); // For WebSearchService
 
     // Register Business Services
     builder.Services.AddScoped<SimilarityChecker>();
@@ -53,9 +57,33 @@ try
     // Register Application Services
     builder.Services.AddScoped<CatalogService>();
     builder.Services.AddScoped<UserService>();
-    builder.Services.AddScoped<DocumentService>();
+    builder.Services.AddScoped<DocumentService>(provider => 
+    {
+        var context = provider.GetRequiredService<BAUDbContext>();
+        var reader = provider.GetRequiredService<DocumentReader>();
+        return new DocumentService(context, reader, "uploads");
+    });
     builder.Services.AddScoped<PlagiarismService>();
     builder.Services.AddScoped<ImportService>();
+    builder.Services.AddScoped<AiDetectionService>();
+    builder.Services.AddScoped<DocumentQualityService>();
+    builder.Services.AddScoped<WebSearchService>();
+
+    // Hangfire Configuration
+    builder.Services.AddHangfire(configuration => configuration
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection"), new SqlServerStorageOptions
+        {
+            CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+            SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+            QueuePollInterval = TimeSpan.Zero,
+            UseRecommendedIsolationLevel = true,
+            DisableGlobalLocks = true
+        }));
+
+    builder.Services.AddHangfireServer();
 
     // Register AuthService with configuration
     builder.Services.AddScoped<AuthService>(provider =>
@@ -124,6 +152,24 @@ try
     }
 
     app.UseCors("AllowAll");
+    
+    // Global Exception Logging Middleware
+    app.Use(async (context, next) => {
+        try {
+            await next();
+        } catch (Exception ex) {
+            Console.WriteLine($"[RUNTIME ERROR] {DateTime.Now}: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+            await File.AppendAllTextAsync("runtime_errors.log", $"{DateTime.Now}: {ex}\n\n");
+            throw;
+        }
+    });
+
+    app.Use(async (context, next) => {
+        Console.WriteLine($"[REQUEST] {context.Request.Method} {context.Request.Path}");
+        await next();
+    });
+
     if (!app.Environment.IsDevelopment())
     {
         app.UseHttpsRedirection();
@@ -135,13 +181,35 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = new[] { new MyHangfireAuthorizationFilter() }
+    });
 
     // Tự động Migration và Seed Data
     using (var scope = app.Services.CreateScope())
     {
-        var context = scope.ServiceProvider.GetRequiredService<BAUDbContext>();
         try {
-            // Apply migrations (or create database if not exists)
+            var context = scope.ServiceProvider.GetRequiredService<BAUDbContext>();
+            
+            // 1. Aggressive Raw SQL Schema Update (Must run BEFORE any EF queries)
+            Console.WriteLine("Checking for missing AI columns...");
+            var conn = context.Database.GetDbConnection();
+            await conn.OpenAsync();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('PlagiarismChecks') AND name = 'AiProbability')
+                    BEGIN
+                        ALTER TABLE PlagiarismChecks ADD AiProbability DECIMAL(5,2) NULL;
+                        ALTER TABLE PlagiarismChecks ADD AiDetectionLevel NVARCHAR(50) NULL;
+                        ALTER TABLE PlagiarismChecks ADD AiDetectionJson NVARCHAR(MAX) NULL;
+                    END";
+                await cmd.ExecuteNonQueryAsync();
+            }
+            Console.WriteLine("AI Columns check completed.");
+
+            // 2. Standard Migrations
             Console.WriteLine("Applying database migrations...");
             await context.Database.MigrateAsync();
             Console.WriteLine("Database migrations applied successfully.");
@@ -173,4 +241,14 @@ catch (Exception ex)
     File.WriteAllText("startup_error.log", ex.ToString());
     Console.WriteLine("STARTUP ERROR: " + ex.Message);
     throw;
+}
+
+public class MyHangfireAuthorizationFilter : IDashboardAuthorizationFilter
+{
+    public bool Authorize(DashboardContext context)
+    {
+        // In production, you should check for admin role here
+        // For development, we allow all
+        return true;
+    }
 }

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { Card, Upload, message, Button, Typography, Steps, Row, Col, Progress, List, Tag, Divider, Space, Badge, Statistic } from 'antd';
+import { Card, Upload, message, Button, Typography, Steps, Row, Col, Progress, List, Tag, Divider, Space, Badge, Statistic, Modal, Input, Radio, Form } from 'antd';
 import { InboxOutlined, FileSearchOutlined, CheckCircleOutlined, InfoCircleOutlined, EyeOutlined, WarningOutlined, ArrowLeftOutlined, DownloadOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import documentApi from '../api/documentApi';
 import plagiarismApi from '../api/plagiarismApi';
+import qualityApi, { DocumentQualityAnalysis } from '../api/qualityApi';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
 import { updateCredits, logout } from '../store/slices/authSlice';
+import QualityAnalysisModal from '../components/QualityAnalysisModal';
 
 const { Dragger } = Upload;
 const { Title, Text, Paragraph } = Typography;
@@ -40,6 +42,11 @@ const PlagiarismCheckPage: React.FC = () => {
     const [progress, setProgress] = useState(0);
     const [loadingStatus, setLoadingStatus] = useState("Đang khởi tạo...");
     const [checkInfo, setCheckInfo] = useState<any>(null);
+    const [isAiModalVisible, setIsAiModalVisible] = useState(false);
+    const [inputType, setInputType] = useState<'file' | 'text'>('file');
+    const [pastedText, setPastedText] = useState("");
+    const [qualityAnalysis, setQualityAnalysis] = useState<DocumentQualityAnalysis | null>(null);
+    const [isQualityModalVisible, setIsQualityModalVisible] = useState(false);
     const location = useLocation();
     const { id } = useParams<{ id: string }>();
 
@@ -66,11 +73,22 @@ const PlagiarismCheckPage: React.FC = () => {
         setUploading(true);
         setCurrentStep(1);
         setProgress(30);
-        setLoadingStatus("Đang tải kết quả từ lịch sử...");
+        setLoadingStatus("Đang tải kết quả...");
 
         try {
-            const detail = await plagiarismApi.getDetail(checkId);
-            setProgress(60);
+            let detail = await plagiarismApi.getDetail(checkId);
+
+            // Polling if still processing
+            if (detail.status === "Processing") {
+                detail = await pollForResult(checkId);
+            }
+
+            if (detail.status === "Failed") {
+                throw new Error(detail.notes || "Phân tích thất bại");
+            }
+
+            setProgress(80);
+            setLoadingStatus("Đang tải dữ liệu văn bản...");
 
             // Get original document text
             const contentResult = await documentApi.getContent(detail.sourceDocumentId);
@@ -78,33 +96,7 @@ const PlagiarismCheckPage: React.FC = () => {
             setPendingFileName(detail.sourceDocumentTitle);
             setSourceDocId(detail.sourceDocumentId);
 
-            // Map detail results to frontend format
-            const segments = (detail.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
-                id: index,
-                text: seg.text,
-                score: seg.score,
-                source: seg.source,
-                matchedText: seg.matchedText,
-                isExcluded: seg.isExcluded,
-                exclusionReason: seg.exclusionReason,
-                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
-            }));
-
-            const matches = (detail.matches || []).map((m: any, idx: number) => ({
-                id: idx,
-                source: m.matchedDocumentTitle,
-                similarity: m.similarityScore,
-                text: m.matchedText,
-                author: "",
-                severity: m.similarityScore > 50 ? 'high' : (m.similarityScore > 20 ? 'medium' : 'low')
-            }));
-
-            setResult({
-                score: detail.overallSimilarityPercentage,
-                matchedDocs: detail.totalMatchedDocuments,
-                detailedAnalysis: { segments },
-                matches: matches
-            });
+            mapBackendResult(detail);
 
             setCheckInfo({
                 userName: detail.userName,
@@ -119,13 +111,138 @@ const PlagiarismCheckPage: React.FC = () => {
                 setCurrentStep(2);
             }, 500);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error loading detail:', error);
-            message.error('Không thể tải chi tiết kết quả');
+            message.error(error.message || 'Không thể tải chi tiết kết quả');
             setCurrentStep(0);
         } finally {
             setUploading(false);
         }
+    };
+
+    const pollForResult = async (checkId: number): Promise<any> => {
+        setLoadingStatus("Hệ thống đang phân tích sâu (AI & Đạo văn)...");
+        let attempts = 0;
+        const maxAttempts = 60; // 90 seconds (60 * 1.5s)
+
+        while (attempts < maxAttempts) {
+            const detail = await plagiarismApi.getDetail(checkId);
+            if (detail.status !== "Processing") return detail;
+
+            attempts++;
+
+            // Better progress feedback
+            if (attempts < 20) {
+                setLoadingStatus("Đang quét kho dữ liệu nội bộ...");
+                setProgress(prev => Math.min(93, prev + 0.5));
+            } else if (attempts < 40) {
+                setLoadingStatus("Đang phân tích AI và ngữ nghĩa...");
+                setProgress(prev => Math.min(96, prev + 0.2));
+            } else {
+                setLoadingStatus("Đang hoàn thiện báo cáo chi tiết...");
+                setProgress(prev => Math.min(98, prev + 0.1));
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+
+        throw new Error("Quá thời gian xử lý. Vui lòng kiểm tra lại trong Lịch sử sau vài phút.");
+    };
+
+    const mapBackendResult = (detail: any) => {
+        // Map detail results to frontend format
+        const segments = (detail.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
+            id: index,
+            text: seg.text,
+            score: seg.score,
+            source: seg.source,
+            matchedText: seg.matchedText,
+            isExcluded: seg.isExcluded,
+            exclusionReason: seg.exclusionReason,
+            severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
+        }));
+
+        const matches = (detail.matches || []).map((m: any, idx: number) => ({
+            id: idx,
+            source: m.matchedDocumentTitle,
+            similarity: m.similarityScore,
+            text: m.matchedText,
+            author: "",
+            severity: m.similarityScore > 50 ? 'high' : (m.similarityScore > 20 ? 'medium' : 'low')
+        }));
+
+        setResult({
+            score: detail.overallSimilarityPercentage,
+            matchedDocs: detail.totalMatchedDocuments,
+            detailedAnalysis: { segments },
+            matches: matches,
+            aiProbability: detail.aiProbability,
+            aiDetectionLevel: detail.aiDetectionLevel,
+            aiAnalysis: detail.aiAnalysis
+        });
+    };
+
+    const renderAiDetailsModal = () => {
+        if (!result?.aiAnalysis) return null;
+
+        return (
+            <Modal
+                title={
+                    <Space>
+                        <WarningOutlined style={{ color: '#faad14' }} />
+                        <span>Chi tiết phân tích AI</span>
+                    </Space>
+                }
+                open={isAiModalVisible}
+                onCancel={() => setIsAiModalVisible(false)}
+                footer={[
+                    <Button key="close" onClick={() => setIsAiModalVisible(false)}>Đóng</Button>
+                ]}
+                width={800}
+                className="ai-details-modal"
+            >
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <Text strong>Tổng quan văn bản:</Text>
+                        <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>
+                            {result.aiDetectionLevel} ({result.aiProbability}%)
+                        </Tag>
+                    </div>
+                    <Paragraph italic type="secondary">
+                        {result.aiAnalysis.summary}
+                    </Paragraph>
+                </div>
+
+                <Divider orientation="left" style={{ fontSize: 13 }}>PHÂN TÍCH TỪNG CÂU</Divider>
+
+                <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '10px', background: '#fafafa', borderRadius: '8px' }}>
+                    {result.aiAnalysis.sentences?.map((item: any, idx: number) => (
+                        <div
+                            key={idx}
+                            style={{
+                                padding: '12px',
+                                marginBottom: '8px',
+                                borderRadius: '6px',
+                                background: item.aiProbability > 70 ? '#fff1f0' : (item.aiProbability > 40 ? '#fffbe6' : '#ffffff'),
+                                border: `1px solid ${item.aiProbability > 70 ? '#ffa39e' : (item.aiProbability > 40 ? '#ffe58f' : '#f0f0f0')}`,
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <Badge status={item.aiProbability > 70 ? 'error' : (item.aiProbability > 40 ? 'warning' : 'success')} text={`Câu ${idx + 1}`} />
+                                <Text code style={{ fontSize: '11px' }}>Xác suất AI: {item.aiProbability}%</Text>
+                            </div>
+                            <Text>{item.text}</Text>
+                        </div>
+                    ))}
+                </div>
+
+                <div style={{ marginTop: 20, textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                        * Lưu ý: Kết quả này dựa trên mô hình ngôn ngữ học và xác suất, chỉ mang tính chất tham khảo.
+                    </Text>
+                </div>
+            </Modal>
+        );
     };
 
     useEffect(() => {
@@ -141,24 +258,15 @@ const PlagiarismCheckPage: React.FC = () => {
         setUploading(true);
         setCurrentStep(1);
         setProgress(10);
-        setLoadingStatus("Đang truy xuất tài liệu từ hệ thống...");
-
-        const interval = setInterval(() => {
-            setProgress(prev => {
-                if (prev < 40) return prev + 3;
-                if (prev < 70) return prev + 2;
-                if (prev < 95) return prev + 1;
-                return prev;
-            });
-        }, 600);
+        setLoadingStatus("Đang tạo yêu cầu phân tích...");
 
         try {
-            // 2. Perform Plagiarism Analysis directly
-            setLoadingStatus("Đang so khớp với 10 triệu+ tài liệu trong thư viện BAU và Internet...");
-            const checkResult = await plagiarismApi.check({
+            const checkRequest = await plagiarismApi.check({
                 sourceDocumentId: id,
                 notes: `Checked from web UI (Library): ${fileName}`
             });
+
+            const checkResult = await pollForResult(checkRequest.checkId);
 
             // 3. Get document text content
             setLoadingStatus("Đang tải dữ liệu văn bản...");
@@ -167,33 +275,8 @@ const PlagiarismCheckPage: React.FC = () => {
             setPendingFileName(fileName);
 
             // 4. Map backend results to frontend format
-            setLoadingStatus("Đang phân tích cấu trúc trùng khớp...");
-            setProgress(90);
-            const segments = (checkResult.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
-                id: index,
-                text: seg.text,
-                score: seg.score,
-                source: seg.source,
-                matchedText: seg.matchedText,
-                isExcluded: seg.isExcluded,
-                exclusionReason: seg.exclusionReason,
-                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
-            }));
-
-            const matches = checkResult.matchDetails.map((m, idx) => ({
-                id: idx,
-                source: m.matchedDocumentTitle,
-                similarity: m.similarityPercentage,
-                text: m.textMatches?.[0]?.matchedText || "",
-                author: m.author
-            }));
-
-            setResult({
-                score: checkResult.overallSimilarityPercentage,
-                matchedDocs: checkResult.totalMatchedDocuments,
-                detailedAnalysis: { segments },
-                matches: matches
-            });
+            setLoadingStatus("Đang xử lý kết quả...");
+            mapBackendResult(checkResult);
 
             setCheckInfo({
                 userName: user?.fullName,
@@ -201,7 +284,6 @@ const PlagiarismCheckPage: React.FC = () => {
                 fileName: pendingFileName
             });
 
-            clearInterval(interval);
             setProgress(100);
             setLoadingStatus("Hoàn tất!");
 
@@ -215,7 +297,6 @@ const PlagiarismCheckPage: React.FC = () => {
                 }));
             }, 500);
         } catch (error: any) {
-            clearInterval(interval);
             console.error('Analysis error:', error);
             message.error(error.message || 'Lỗi phân tích tài liệu');
             setCurrentStep(0);
@@ -234,6 +315,8 @@ const PlagiarismCheckPage: React.FC = () => {
         setSelectedMatch(null);
         setUploading(false);
         setSourceDocId(null);
+        setPastedText("");
+        setInputType('file');
     };
 
     const beforeUpload = (file: File) => {
@@ -283,12 +366,16 @@ const PlagiarismCheckPage: React.FC = () => {
     };
 
     const startAnalysis = async () => {
-        if (!pendingFile) return;
+        if (inputType === 'file' && !pendingFile) return;
+        if (inputType === 'text' && !pastedText.trim()) {
+            message.warning("Vui lòng dán nội dung văn bản cần kiểm tra");
+            return;
+        }
 
         setUploading(true);
         setCurrentStep(1);
         setProgress(5);
-        setLoadingStatus("Đang chuẩn bị tệp tin...");
+        setLoadingStatus("Đang khởi tạo phiên làm việc...");
 
         const interval = setInterval(() => {
             setProgress(prev => {
@@ -300,64 +387,74 @@ const PlagiarismCheckPage: React.FC = () => {
         }, 500);
 
         try {
-            // 1. Upload document (as inactive so it doesn't show in library)
-            setLoadingStatus("Đang tải tài liệu lên máy chủ BAU...");
-            const uploadResult = await documentApi.upload({
-                file: pendingFile,
-                title: pendingFileName,
-                documentType: 'Essay',
-                isPublic: false,
-                isActive: false // Don't show in repository
-            });
-            setSourceDocId(uploadResult.id);
+            let docId: number;
+            let displayTitle: string = pendingFileName;
+
+            if (inputType === 'file' && pendingFile) {
+                // 1. Tải tài liệu lên
+                setLoadingStatus("Đang tải tài liệu lên máy chủ BAU...");
+                const uploadResult = await documentApi.upload({
+                    file: pendingFile,
+                    title: pendingFileName,
+                    documentType: 'Essay',
+                    isPublic: false,
+                    isActive: false
+                });
+                docId = uploadResult.id;
+                displayTitle = uploadResult.title;
+            } else {
+                // 1. Tạo từ văn bản dán
+                setLoadingStatus("Đang xử lý văn bản nội dung...");
+                const titleFromText = pastedText.substring(0, 50).trim() + (pastedText.length > 50 ? "..." : "");
+                const textResult = await documentApi.createFromText({
+                    content: pastedText,
+                    title: `Văn bản dán_${new Date().getTime()}`,
+                    documentType: 'Essay',
+                    isPublic: false,
+                    isActive: false
+                });
+                docId = textResult.id;
+                displayTitle = titleFromText;
+            }
+
+            setSourceDocId(docId);
             setProgress(35);
 
-            // Get the extracted content to show on screen
-            setLoadingStatus("Đang trích xuất nội dung văn bản...");
-            const contentResult = await documentApi.getContent(uploadResult.id);
+            // Lấy nội dung đã trích xuất để hiển thị trên màn hình
+            setLoadingStatus("Đang chuẩn bị dữ liệu hiển thị...");
+            const contentResult = await documentApi.getContent(docId);
             setFullText(contentResult.content);
             setProgress(50);
 
-            // 2. Start plagiarism check
-            setLoadingStatus("Đang đối soát dữ liệu với các nguồn học thuật...");
-            const checkResult = await plagiarismApi.check({
-                sourceDocumentId: uploadResult.id,
-                notes: `Checked from web UI: ${pendingFileName}`
+            // 2. Bắt đầu kiểm tra đạo văn
+            setLoadingStatus("Đang đối soát dữ liệu (Đạo văn & AI)...");
+            const checkRequest = await plagiarismApi.check({
+                sourceDocumentId: docId,
+                notes: `Kiểm tra từ giao diện Web (${inputType}): ${displayTitle}`
             });
 
-            // 3. Map backend results to frontend format
+            // Xóa bộ đếm tiến trình "giả" và để pollForResult đảm nhận tiến trình thực từ máy chủ
+            clearInterval(interval);
+            const checkResult = await pollForResult(checkRequest.checkId);
+
+            // 3. Chuyển đổi kết quả backend sang định dạng frontend
             setLoadingStatus("Đang xử lý kết quả phân tích...");
-            setProgress(90);
-            const segments = (checkResult.detailedAnalysis?.segments || []).map((seg: any, index: number) => ({
-                id: index,
-                text: seg.text,
-                score: seg.score,
-                source: seg.source,
-                matchedText: seg.matchedText,
-                isExcluded: seg.isExcluded,
-                exclusionReason: seg.exclusionReason,
-                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low')
-            }));
+            mapBackendResult(checkResult);
 
-            const matches = checkResult.matchDetails.map((m, idx) => ({
-                id: idx,
-                source: m.matchedDocumentTitle,
-                similarity: m.similarityPercentage,
-                text: m.textMatches?.[0]?.matchedText || "",
-                author: m.author
-            }));
-
-            setResult({
-                score: checkResult.overallSimilarityPercentage,
-                matchedDocs: checkResult.totalMatchedDocuments,
-                detailedAnalysis: { segments },
-                matches: matches
-            });
+            // 4. Thực hiện việc phân tích chất lượng
+            setLoadingStatus("Đang phân tích chất lượng văn bản...");
+            try {
+                const qualityResult = await qualityApi.analyzeDocument(docId);
+                setQualityAnalysis(qualityResult);
+            } catch (error) {
+                console.error('Lỗi phân tích chất lượng:', error);
+                // Tiếp tục ngay cả khi phân tích chất lượng thất bại
+            }
 
             setCheckInfo({
                 userName: user?.fullName,
                 checkDate: new Date().toISOString(),
-                fileName: pendingFileName
+                fileName: displayTitle
             });
 
             clearInterval(interval);
@@ -366,8 +463,8 @@ const PlagiarismCheckPage: React.FC = () => {
 
             setTimeout(() => {
                 setCurrentStep(2);
-                fetchHistory(); // Refresh history
-                // Update global credits state
+                fetchHistory(); // Làm mới lịch sử
+                // Cập nhật trạng thái lượt kiểm tra toàn cục
                 dispatch(updateCredits({
                     remainingChecksToday: checkResult.remainingChecksToday,
                     dailyCheckLimit: checkResult.dailyCheckLimit
@@ -375,7 +472,8 @@ const PlagiarismCheckPage: React.FC = () => {
             }, 600);
         } catch (error: any) {
             clearInterval(interval);
-            message.error(`Lỗi khi kiểm tra đạo văn: ${error}`);
+            console.error('Plagiarism check error:', error);
+            message.error(error.message || `Lỗi khi kiểm tra đạo văn: ${error}`);
             setCurrentStep(0);
         } finally {
             setUploading(false);
@@ -477,35 +575,70 @@ const PlagiarismCheckPage: React.FC = () => {
 
                 {currentStep === 0 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                        <Dragger
-                            name="file"
-                            multiple={false}
-                            beforeUpload={beforeUpload}
-                            showUploadList={false}
-                            style={{ padding: 40, background: 'rgba(24, 144, 255, 0.02)', borderRadius: 16 }}
-                        >
-                            <p className="ant-upload-drag-icon">
-                                <Badge count={<WarningOutlined style={{ color: '#faad14' }} />}>
-                                    <InboxOutlined style={{ color: '#003a8c', fontSize: 64 }} />
-                                </Badge>
-                            </p>
-                            {pendingFileName ? (
-                                <div>
-                                    <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
-                                        <FileSearchOutlined /> {pendingFileName}
-                                    </Text>
-                                    <br />
-                                    <Text type="secondary">File đã sẵn sàng để kiểm tra</Text>
+                        <div style={{ textAlign: 'center', marginBottom: 30 }}>
+                            <Radio.Group
+                                value={inputType}
+                                onChange={(e) => setInputType(e.target.value)}
+                                buttonStyle="solid"
+                                size="large"
+                            >
+                                <Radio.Button value="file"><InboxOutlined /> Tải lên File</Radio.Button>
+                                <Radio.Button value="text"><FileTextOutlined /> Dán văn bản</Radio.Button>
+                            </Radio.Group>
+                        </div>
+
+                        {inputType === 'file' ? (
+                            <Dragger
+                                name="file"
+                                multiple={false}
+                                beforeUpload={beforeUpload}
+                                showUploadList={false}
+                                style={{ padding: 40, background: 'rgba(24, 144, 255, 0.02)', borderRadius: 16 }}
+                            >
+                                <p className="ant-upload-drag-icon">
+                                    <Badge count={<WarningOutlined style={{ color: '#faad14' }} />}>
+                                        <InboxOutlined style={{ color: '#003a8c', fontSize: 64 }} />
+                                    </Badge>
+                                </p>
+                                {pendingFileName ? (
+                                    <div>
+                                        <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
+                                            <FileSearchOutlined /> {pendingFileName}
+                                        </Text>
+                                        <br />
+                                        <Text type="secondary">File đã sẵn sàng để kiểm tra</Text>
+                                    </div>
+                                ) : (
+                                    <Divider plain><Text type="secondary">Kéo thả file .docx, .pdf hoặc .txt</Text></Divider>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 20 }}>
+                                    <Badge status="processing" text="Dữ liệu nội bộ BAU" />
+                                    <Badge status="warning" text="Cơ sở dữ liệu Internet" />
+                                    <Badge status="success" text="Tạp chí khoa học" />
                                 </div>
-                            ) : (
-                                <Divider plain><Text type="secondary">Kéo thả file .docx, .pdf hoặc .txt</Text></Divider>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 20 }}>
-                                <Badge status="processing" text="Dữ liệu nội bộ BAU" />
-                                <Badge status="warning" text="Cơ sở dữ liệu Internet" />
-                                <Badge status="success" text="Tạp chí khoa học" />
+                            </Dragger>
+                        ) : (
+                            <div style={{ padding: '0 20px' }}>
+                                <Input.TextArea
+                                    placeholder="Dán nội dung văn bản bạn muốn kiểm tra vào đây (Hỗ trợ lên đến 1000 từ)..."
+                                    value={pastedText}
+                                    onChange={(e) => setPastedText(e.target.value)}
+                                    rows={15}
+                                    className="custom-scrollbar"
+                                    style={{ borderRadius: 12, padding: 16, fontSize: 15, border: '2px solid #e6f7ff' }}
+                                />
+                                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+                                    <Text type="secondary" italic>Mẹo: Bạn có thể dán toàn bộ bài luận hoặc báo cáo dài vào đây.</Text>
+                                    <Space>
+                                        <Text type={pastedText.trim().split(/\s+/).filter(w => w.length > 0).length > 1000 ? 'danger' : 'secondary'}>
+                                            Số từ: {pastedText.trim().split(/\s+/).filter(w => w.length > 0).length} / 1000
+                                        </Text>
+                                        <Divider type="vertical" />
+                                        <Text type="secondary">Ký tự: {pastedText.length}</Text>
+                                    </Space>
+                                </div>
                             </div>
-                        </Dragger>
+                        )}
 
                         {user?.role === 'Student' && (
                             <div style={{ marginTop: 24, textAlign: 'center' }}>
@@ -521,7 +654,7 @@ const PlagiarismCheckPage: React.FC = () => {
                             </div>
                         )}
 
-                        {pendingFile && (
+                        {((inputType === 'file' && pendingFile) || (inputType === 'text' && pastedText.trim().length > 100)) && (
                             <div style={{ textAlign: 'center', marginTop: 30 }}>
                                 <Button
                                     type="primary"
@@ -608,39 +741,206 @@ const PlagiarismCheckPage: React.FC = () => {
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
                         <Row gutter={[24, 24]}>
                             <Col span={24}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f5f5f5', padding: '16px 24px', borderRadius: 8, marginBottom: 16 }}>
-                                    <Space size="large">
-                                        <div>
-                                            <Text type="secondary">Tỷ lệ trùng khớp:</Text>
-                                            <Title level={4} style={{ margin: 0, color: result.score > 20 ? '#ff4d4f' : '#52c41a' }}>{result.score}%</Title>
-                                        </div>
-                                        <Divider type="vertical" style={{ height: 40 }} />
-                                        <div>
-                                            <Text type="secondary">Nguồn trùng khớp:</Text>
-                                            <Title level={4} style={{ margin: 0 }}>{result.matchedDocs} nguồn</Title>
-                                        </div>
-                                        {checkInfo && (
-                                            <>
+                                {/* Modern Result Header */}
+                                <Card
+                                    className="glass-card"
+                                    style={{
+                                        marginBottom: 24,
+                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                        border: 'none',
+                                        overflow: 'hidden'
+                                    }}
+                                    bodyStyle={{ padding: 0 }}
+                                >
+                                    <Row>
+                                        {/* Left side - Statistics */}
+                                        <Col xs={24} lg={14} style={{ padding: '32px', borderRight: '1px solid rgba(255,255,255,0.1)' }}>
+                                            <Row gutter={[24, 24]}>
+                                                <Col xs={24} sm={12}>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{
+                                                            fontSize: 48,
+                                                            fontWeight: 'bold',
+                                                            color: '#fff',
+                                                            textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                        }}>
+                                                            {result.score}%
+                                                        </div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
+                                                            Tỷ lệ trùng khớp
+                                                        </div>
+                                                        <Tag
+                                                            color={result.score > 20 ? 'error' : 'success'}
+                                                            style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
+                                                        >
+                                                            {result.score > 20 ? '⚠️ Nguy cơ cao' : '✅ An toàn'}
+                                                        </Tag>
+                                                    </div>
+                                                </Col>
+                                                <Col xs={24} sm={12}>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{
+                                                            fontSize: 48,
+                                                            fontWeight: 'bold',
+                                                            color: '#fff',
+                                                            textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                        }}>
+                                                            {result.matchedDocs}
+                                                        </div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
+                                                            Nguồn trùng khớp
+                                                        </div>
+                                                        <Tag
+                                                            color="processing"
+                                                            style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
+                                                        >
+                                                            📚 {result.matchedDocs} tài liệu
+                                                        </Tag>
+                                                    </div>
+                                                </Col>
+                                            </Row>
+
+                                            {checkInfo && (
+                                                <Row gutter={[16, 16]} style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <Col xs={24} sm={12}>
+                                                        <Space direction="vertical" size={4}>
+                                                            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>👤 Người nộp</Text>
+                                                            <Text strong style={{ color: '#fff', fontSize: 15 }}>{checkInfo.userName}</Text>
+                                                        </Space>
+                                                    </Col>
+                                                    <Col xs={24} sm={12}>
+                                                        <Space direction="vertical" size={4}>
+                                                            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>📅 Ngày nộp</Text>
+                                                            <Text strong style={{ color: '#fff', fontSize: 15 }}>
+                                                                {new Date(checkInfo.checkDate).toLocaleDateString('vi-VN')}
+                                                            </Text>
+                                                        </Space>
+                                                    </Col>
+                                                </Row>
+                                            )}
+                                        </Col>
+
+                                        {/* Right side - Actions */}
+                                        <Col xs={24} lg={10} style={{ padding: '32px', background: 'rgba(255,255,255,0.05)' }}>
+                                            <div style={{ marginBottom: 16 }}>
+                                                <Text strong style={{ color: '#fff', fontSize: 16, display: 'block', marginBottom: 16 }}>
+                                                    ⚡ Thao tác nhanh
+                                                </Text>
+                                            </div>
+                                            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                                                <Button
+                                                    block
+                                                    size="large"
+                                                    icon={<DownloadOutlined />}
+                                                    onClick={() => sourceDocId && window.open(documentApi.getDownloadUrl(sourceDocId), '_blank')}
+                                                    style={{
+                                                        background: 'rgba(255,255,255,0.15)',
+                                                        border: '1px solid rgba(255,255,255,0.3)',
+                                                        color: '#fff',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Tải xuống file gốc
+                                                </Button>
+                                                <Button
+                                                    block
+                                                    size="large"
+                                                    icon={<FileTextOutlined />}
+                                                    onClick={downloadTextReport}
+                                                    style={{
+                                                        background: 'rgba(255,255,255,0.15)',
+                                                        border: '1px solid rgba(255,255,255,0.3)',
+                                                        color: '#fff',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Tải báo cáo chi tiết
+                                                </Button>
+                                                <Button
+                                                    block
+                                                    size="large"
+                                                    icon={<EyeOutlined />}
+                                                    onClick={handlePrint}
+                                                    style={{
+                                                        background: 'rgba(255,255,255,0.15)',
+                                                        border: '1px solid rgba(255,255,255,0.3)',
+                                                        color: '#fff',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Xuất báo cáo (In)
+                                                </Button>
+                                                {qualityAnalysis && (
+                                                    <Button
+                                                        block
+                                                        size="large"
+                                                        type="primary"
+                                                        icon={<CheckCircleOutlined />}
+                                                        onClick={() => setIsQualityModalVisible(true)}
+                                                        style={{
+                                                            background: '#52c41a',
+                                                            borderColor: '#52c41a',
+                                                            fontWeight: 500
+                                                        }}
+                                                    >
+                                                        Xem phân tích chất lượng
+                                                    </Button>
+                                                )}
+                                                <Divider style={{ borderColor: 'rgba(255,255,255,0.2)', margin: '8px 0' }} />
+                                                <Button
+                                                    block
+                                                    size="large"
+                                                    danger
+                                                    type="primary"
+                                                    onClick={resetAnalysis}
+                                                    style={{ fontWeight: 500 }}
+                                                >
+                                                    🔄 Kiểm tra file khác
+                                                </Button>
+                                            </Space>
+                                        </Col>
+                                    </Row>
+                                </Card>
+
+                                {/* AI Detection Result Card */}
+                                {result.aiProbability !== undefined && (
+                                    <Card
+                                        size="small"
+                                        style={{
+                                            marginBottom: 24,
+                                            background: result.aiProbability > 70 ? '#fff1f0' : (result.aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
+                                            border: `1px solid ${result.aiProbability > 70 ? '#ffa39e' : (result.aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
+                                        }}
+                                    >
+                                        <Row align="middle" gutter={24}>
+                                            <Col>
+                                                <Statistic
+                                                    title={<Space><WarningOutlined /> Xác suất AI</Space>}
+                                                    value={result.aiProbability}
+                                                    suffix="%"
+                                                    valueStyle={{
+                                                        color: result.aiProbability > 70 ? '#cf1322' : (result.aiProbability > 40 ? '#d48806' : '#389e0d'),
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                />
+                                            </Col>
+                                            <Col>
                                                 <Divider type="vertical" style={{ height: 40 }} />
-                                                <div>
-                                                    <Text type="secondary">Người nộp:</Text>
-                                                    <div style={{ fontWeight: 'bold' }}>{checkInfo.userName}</div>
+                                            </Col>
+                                            <Col flex="auto">
+                                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                    <Text strong style={{ fontSize: 16 }}>
+                                                        Mức độ nghi ngờ: <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>{result.aiDetectionLevel}</Tag>
+                                                    </Text>
+                                                    <Text type="secondary">{result.aiAnalysis?.summary || "Đang phân tích chi tiết cấu trúc câu..."}</Text>
                                                 </div>
-                                                <Divider type="vertical" style={{ height: 40 }} />
-                                                <div>
-                                                    <Text type="secondary">Ngày nộp:</Text>
-                                                    <div style={{ fontSize: 13 }}>{new Date(checkInfo.checkDate).toLocaleString('vi-VN')}</div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </Space>
-                                    <Space>
-                                        <Button icon={<DownloadOutlined />} onClick={() => sourceDocId && window.open(documentApi.getDownloadUrl(sourceDocId), '_blank')}>Tải xuống file gốc</Button>
-                                        <Button icon={<FileTextOutlined />} onClick={downloadTextReport}>Tải báo cáo chi tiết</Button>
-                                        <Button icon={<EyeOutlined />} onClick={handlePrint}>Xuất báo cáo (In)</Button>
-                                        <Button danger type="primary" onClick={resetAnalysis}>Xoá & Kiểm tra file khác</Button>
-                                    </Space>
-                                </div>
+                                            </Col>
+                                            <Col>
+                                                <Button type="link" onClick={() => setIsAiModalVisible(true)}>Xem chi tiết AI</Button>
+                                            </Col>
+                                        </Row>
+                                    </Card>
+                                )}
 
                                 {/* Print-only Summary Header */}
                                 <div className="print-only" style={{ padding: '20px 0', borderBottom: '2px solid #003a8c', marginBottom: 30 }}>
@@ -735,6 +1035,12 @@ const PlagiarismCheckPage: React.FC = () => {
                     Tính năng <strong>So sánh trực tiếp</strong> giúp giảng viên và sinh viên đối chiếu chính xác đoạn văn bị trùng với tài liệu gốc trong kho lưu trữ.
                 </Paragraph>
             </Card>
+            {renderAiDetailsModal()}
+            <QualityAnalysisModal
+                visible={isQualityModalVisible}
+                onClose={() => setIsQualityModalVisible(false)}
+                analysis={qualityAnalysis}
+            />
         </div>
     );
 };

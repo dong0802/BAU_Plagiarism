@@ -11,6 +11,14 @@ export interface DocumentUploadDto {
     file: File;
 }
 
+export interface DocumentTextDto {
+    title?: string;
+    content: string;
+    documentType: string;
+    isPublic: boolean;
+    isActive?: boolean;
+}
+
 export interface DocumentDto {
     id: number;
     title: string;
@@ -29,12 +37,15 @@ export interface DocumentDto {
 }
 
 const documentApi = {
+    // Lấy danh sách tất cả tài liệu
     getAll: (params?: any): Promise<DocumentDto[]> => {
         return axiosClient.get('/documents', { params });
     },
+    // Lấy chi tiết tài liệu theo ID
     getById: (id: number): Promise<DocumentDto> => {
         return axiosClient.get(`/documents/${id}`);
     },
+    // Tải lên tài liệu mới dưới dạng tệp
     upload: (data: DocumentUploadDto): Promise<DocumentDto> => {
         const formData = new FormData();
         formData.append('file', data.file);
@@ -52,15 +63,23 @@ const documentApi = {
             },
         });
     },
+    // Tạo tài liệu mới từ văn bản dán
+    createFromText: (data: DocumentTextDto): Promise<DocumentDto> => {
+        return axiosClient.post('/documents/paste-text', data);
+    },
+    // Cập nhật thông tin tài liệu
     update: (id: number, data: any): Promise<DocumentDto> => {
         return axiosClient.put(`/documents/${id}`, data);
     },
+    // Xóa tài liệu (Xóa mềm)
     delete: (id: number): Promise<void> => {
         return axiosClient.delete(`/documents/${id}`);
     },
+    // Lấy nội dung văn bản thuần của tài liệu
     getContent: (id: number): Promise<{ content: string }> => {
         return axiosClient.get(`/documents/${id}/content`);
     },
+    // Lấy đường dẫn tải xuống tệp gốc
     getDownloadUrl: (id: number): string => {
         const baseUrl = import.meta.env.VITE_API_URL || '/api';
         const token = localStorage.getItem('token');

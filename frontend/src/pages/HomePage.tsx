@@ -79,19 +79,21 @@ const HomePage: React.FC = () => {
             icon: <CheckCircleOutlined />,
             color: '#52c41a'
         },
-        {
-            title: isStudent ? 'Tỷ lệ trùng khớp TB' : 'Tỷ lệ trùng khớp hệ thống',
-            value: `${statsData?.averageSimilarity.toFixed(1) || 0}%`,
-            icon: <WarningOutlined />,
-            color: '#fa8c16'
-        },
-        // Hide user count for students
-        ...(isStudent ? [] : [{
-            title: 'Người dùng hệ thống',
-            value: statsData?.totalUsers || 0,
-            icon: <TeamOutlined />,
-            color: '#722ed1'
-        }]),
+        // Only show for non-students
+        ...(!isStudent ? [
+            {
+                title: 'Khoa nộp bài',
+                value: statsData?.totalFaculties || 0,
+                icon: <TeamOutlined />,
+                color: '#722ed1'
+            },
+            {
+                title: 'Sĩ số Sinh viên',
+                value: statsData?.totalStudents || 0,
+                icon: <TeamOutlined />,
+                color: '#fa8c16'
+            }
+        ] : []),
     ];
 
     const columns = [

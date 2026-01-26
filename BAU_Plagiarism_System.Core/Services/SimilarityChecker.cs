@@ -27,27 +27,31 @@ namespace BAU_Plagiarism_System.Core.Services
         }
 
         /// <summary>
-        /// Calculate similarity between two texts (returns decimal 0-1)
-        /// Used by PlagiarismService
+        /// Tính toán độ tương đồng giữa hai văn bản (trả về giá trị thập phân 0-1)
+        /// Được sử dụng bởi PlagiarismService
         /// </summary>
         public decimal CalculateSimilarity(string text1, string text2)
         {
             var similarity = CalculateJaccardSimilarity(text1, text2, 3);
-            return (decimal)(similarity / 100.0); // Convert to 0-1 range
+            return (decimal)(similarity / 100.0); // Chuyển đổi sang phạm vi 0-1
         }
 
         public PlagiarismAnalysis AnalyzeDetailed(string newText, List<BAU_Plagiarism_System.Data.Models.Document> database)
         {
-            // 1. Clean the document (Remove Bibliographies like Turnitin)
+            // 1. Làm sạch tài liệu (Loại bỏ danh mục tham khảo giống như Turnitin)
             string cleanedNewText = _processor.CleanDocument(newText);
             var segments = _processor.SplitIntoSmartSegments(cleanedNewText);
             
             var analysis = new PlagiarismAnalysis();
             
-            // Prepare database documents (Clean them too)
-            var cleanDb = database.Select(d => new {
-                Doc = d,
-                CleanContent = _processor.NormalizeText(_processor.CleanDocument(d.Content))
+            // Chuẩn bị các tài liệu trong cơ sở dữ liệu (Làm sạch và tính toán trước NGrams)
+            var cleanDb = database.Select(d => {
+                var cleanContent = _processor.NormalizeText(_processor.CleanDocument(d.Content));
+                return new {
+                    Doc = d,
+                    CleanContent = cleanContent,
+                    NGrams = _processor.GenerateNGrams(cleanContent, 2) // Tính toán trước NGrams cho toàn bộ tài liệu
+                };
             }).ToList();
 
             int matchedWords = 0;
@@ -66,45 +70,56 @@ namespace BAU_Plagiarism_System.Core.Services
                     continue;
                 }
 
-                totalWords += _processor.Tokenize(seg.CleanText).Count;
+                var segmentCleanText = seg.CleanText;
+                var segmentTokens = _processor.Tokenize(segmentCleanText);
+                totalWords += segmentTokens.Count;
 
+                var segmentNGrams = _processor.GenerateNGrams(segmentCleanText, 2);
                 var segmentAnalysis = new HighlightedSegment { Text = seg.RawText };
                 double bestMatchScore = 0;
                 string? bestSource = null;
 
                 foreach (var dbDoc in cleanDb)
                 {
-                    // Check if the segment clean text is contained or highly similar
-                    double score = CalculateJaccardSimilarity(seg.CleanText, dbDoc.CleanContent, 2);
-                    
-                    // Turnitin Logic: If a phrase of >7 words matches exactly, it's 100%
-                    if (dbDoc.CleanContent.Contains(seg.CleanText) && seg.CleanText.Split(' ').Length >= 5)
+                    // Đường dẫn nhanh: Kiểm tra xem phân đoạn có được chứa chính xác hay không (Không phân biệt hoa thường do chuẩn hóa)
+                    if (segmentTokens.Count >= 5 && dbDoc.CleanContent.Contains(segmentCleanText))
                     {
-                        score = 100;
+                        bestMatchScore = 100;
+                        bestSource = dbDoc.Doc.Title;
+                        segmentAnalysis.MatchedText = segmentCleanText;
+                        break; // Đã tìm thấy khớp 100%, có thể dừng cho tài liệu này
                     }
 
-                    if (score > bestMatchScore)
+                    // Nếu không, tính toán độ tương đồng Jaccard bằng cách sử dụng NGrams của tài liệu đã tính toán trước
+                    if (segmentNGrams.Any() && dbDoc.NGrams.Any())
                     {
-                        bestMatchScore = score;
-                        bestSource = dbDoc.Doc.Title;
-                        segmentAnalysis.MatchedText = seg.CleanText; // Simplified for now
+                        var intersection = segmentNGrams.Intersect(dbDoc.NGrams).Count();
+                        var union = segmentNGrams.Count + dbDoc.NGrams.Count - intersection;
+                        double score = (double)intersection / union * 100;
+
+                        if (score > bestMatchScore)
+                        {
+                            bestMatchScore = score;
+                            bestSource = dbDoc.Doc.Title;
+                            segmentAnalysis.MatchedText = segmentCleanText; // Đơn giản hóa
+                        }
                     }
                 }
 
                 segmentAnalysis.Score = Math.Round(bestMatchScore, 2);
                 segmentAnalysis.Source = bestSource;
-                segmentAnalysis.StartPosition = 0; // In a real app, track cursor position in raw text
+                segmentAnalysis.StartPosition = 0; 
                 segmentAnalysis.EndPosition = seg.RawText.Length;
                
-                if (bestMatchScore > 20) // Only count as matched words if similarity is significant
+                if (bestMatchScore > 20) 
                 {
-                    matchedWords += _processor.Tokenize(seg.CleanText).Count;
+                    matchedWords += segmentTokens.Count;
                 }
 
                 analysis.Segments.Add(segmentAnalysis);
             }
 
-            // Overall score calculation (Matched words / Total words)
+            // Tính toán tổng số điểm (Số từ khớp / Tổng số từ)
             analysis.OverallScore = totalWords > 0 ? Math.Round((double)matchedWords / totalWords * 100, 2) : 0;
             
             return analysis;

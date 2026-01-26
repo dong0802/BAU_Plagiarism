@@ -29,7 +29,7 @@ namespace BAU_Plagiarism_System.Core.Services
 
         public async Task<LoginResponseDto?> LoginAsync(LoginDto dto)
         {
-            // Find user
+            // Tìm người dùng
             var user = await _context.Users
                 .Include(u => u.Faculty)
                 .Include(u => u.Department)
@@ -37,14 +37,14 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (user == null) return null;
 
-            // Verify password
+            // Xác minh mật khẩu
             if (!UserService.VerifyPassword(dto.Password, user.PasswordHash))
                 return null;
 
-            // Update last login
+            // Cập nhật lần đăng nhập cuối
             user.LastLoginDate = DateTime.Now;
 
-            // Daily Check Limit Reset handle on login too
+            // Xử lý việc đặt lại giới hạn kiểm tra hàng ngày khi đăng nhập
             if (user.LastCheckResetDate == null || user.LastCheckResetDate.Value.Date < DateTime.Now.Date)
             {
                 user.ChecksUsedToday = 0;
@@ -53,7 +53,7 @@ namespace BAU_Plagiarism_System.Core.Services
 
             await _context.SaveChangesAsync();
 
-            // Generate JWT token
+            // Tạo mã JWT (JWT token)
             var token = GenerateJwtToken(user);
 
             return new LoginResponseDto

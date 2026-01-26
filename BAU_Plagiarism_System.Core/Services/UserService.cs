@@ -120,16 +120,16 @@ namespace BAU_Plagiarism_System.Core.Services
 
         public async Task<UserDto> CreateUserAsync(CreateUserDto dto)
         {
-            // Find any user with same username or email
+            // Tìm bất kỳ người dùng nào có cùng tên đăng nhập hoặc email
             var existingUserByUsername = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == dto.Username.ToLower());
             if (existingUserByUsername != null && existingUserByUsername.IsActive)
                  throw new Exception("Tên đăng nhập đã tồn tại trên hệ thống.");
 
             var existingUserByEmail = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == dto.Email.ToLower());
             if (existingUserByEmail != null && existingUserByEmail.IsActive)
-                throw new Exception("Email đã được sử dụng bởi một tài khoản khác.");
+                 throw new Exception("Email đã được sử dụng bởi một tài khoản khác.");
 
-            // If we found an inactive user (either by email or username), reactivate and update them
+            // Nếu chúng tôi tìm thấy một người dùng bị vô hiệu hóa (theo email hoặc tên đăng nhập), hãy kích hoạt lại và cập nhật họ
             var targetUser = existingUserByEmail ?? existingUserByUsername;
 
             if (targetUser != null && !targetUser.IsActive)
@@ -155,7 +155,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 return MapToDto(targetUser);
             }
 
-            // Otherwise create new
+            // Nếu không, hãy tạo mới
             var user = new User
             {
                 Username = dto.Username,
@@ -175,7 +175,7 @@ namespace BAU_Plagiarism_System.Core.Services
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            // Load related entities
+            // Tải các thực thể liên quan
             await _context.Entry(user).Reference(u => u.Faculty).LoadAsync();
             await _context.Entry(user).Reference(u => u.Department).LoadAsync();
 
@@ -245,11 +245,11 @@ namespace BAU_Plagiarism_System.Core.Services
             var user = await _context.Users.FindAsync(userId);
             if (user == null) return false;
 
-            // Verify current password
+            // Xác minh mật khẩu hiện tại
             if (!VerifyPassword(dto.CurrentPassword, user.PasswordHash))
                 return false;
 
-            // Update password
+            // Cập nhật mật khẩu
             user.PasswordHash = HashPassword(dto.NewPassword);
             await _context.SaveChangesAsync();
 
@@ -281,7 +281,7 @@ namespace BAU_Plagiarism_System.Core.Services
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email && u.IsActive);
             if (user == null) return false;
 
-            // Generate 6-digit code
+            // Tạo mã 6 chữ số
             var code = new Random().Next(100000, 999999).ToString();
             
             user.PasswordResetToken = code;
@@ -311,7 +311,7 @@ namespace BAU_Plagiarism_System.Core.Services
             return true;
         }
 
-        // ============= HELPER METHODS =============
+        // ============= CÁC PHƯƠNG THỨC HỖ TRỢ =============
         private UserDto MapToDto(User user)
         {
             return new UserDto

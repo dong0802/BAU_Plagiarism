@@ -48,6 +48,7 @@ h4,
 .gradient-text {
   background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   font-weight: 700;
 }
@@ -224,4 +225,29 @@ h4,
 
 .print-only {
   display: none;
+}
+
+/* Extra premium styles for input area */
+.ant-radio-button-wrapper-checked {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+}
+
+textarea.ant-input {
+  transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+textarea.ant-input:focus {
+  background: white !important;
+  box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.1) !important;
+  border-color: var(--accent-color) !important;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(24, 144, 255, 0.2);
+  border-radius: 10px;
 }

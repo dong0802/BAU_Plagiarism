@@ -29,8 +29,8 @@ namespace BAU_Plagiarism_System.Core.Services
         }
 
         /// <summary>
-        /// Process text (alias for NormalizeText)
-        /// Used by PlagiarismService
+        /// Xử lý văn bản (bí danh cho NormalizeText)
+        /// Được sử dụng bởi PlagiarismService
         /// </summary>
         public string Process(string text)
         {
@@ -43,12 +43,12 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (excludeBibliography)
             {
-                // Find the first occurrence of bibliography keywords near the end of the document
+                // Tìm sự xuất hiện đầu tiên của từ khóa danh mục tham khảo gần cuối tài liệu
                 int bestIndex = -1;
                 foreach (var keyword in BibliographyKeywords)
                 {
                     int index = text.ToLower().LastIndexOf(keyword);
-                    // Usually bibliography is in the last 20% of the document
+                    // Thông thường danh mục tham khảo nằm ở 20% cuối của tài liệu
                     if (index > text.Length * 0.7 && index > bestIndex)
                     {
                         bestIndex = index;
@@ -68,9 +68,9 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             if (string.IsNullOrWhiteSpace(text)) return new List<TextSegment>();
 
-            // Split into sentences but preserve original text for display
+            // Chia thành các câu nhưng vẫn giữ lại văn bản gốc để hiển thị
             var segments = new List<TextSegment>();
-            // Split by punctuation but keep it
+            // Chia theo dấu câu nhưng giữ lại dấu đó
             var matches = Regex.Matches(text, @"[^.!?\n]+[.!?\n]*|[\n]+");
 
             foreach (Match match in matches)
@@ -91,7 +91,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 }
                 else
                 {
-                    // Check for common phrases
+                    // Kiểm tra cụm từ thông dụng
                     foreach (var phrase in CommonPhrases)
                     {
                         if (clean.Contains(phrase))

@@ -45,7 +45,7 @@ namespace BAU_Plagiarism_System.API.Controllers
             [FromQuery] int? documentId = null,
             [FromQuery] int? limit = null)
         {
-            // If not admin, only show own history
+            // Nếu không phải quản trị viên, chỉ hiển thị lịch sử của chính mình
             var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
@@ -68,7 +68,7 @@ namespace BAU_Plagiarism_System.API.Controllers
             if (check == null)
                 return NotFound();
 
-            // Authorization: Only owner, lecturer, or admin can view
+            // Phân quyền: Chỉ chủ sở hữu, giảng viên hoặc quản trị viên mới có thể xem
             var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
@@ -92,7 +92,7 @@ namespace BAU_Plagiarism_System.API.Controllers
             var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var userRole = User.FindFirst(ClaimTypes.Role)?.Value;
 
-            // Students only see their own stats
+            // Sinh viên chỉ thấy thống kê của chính họ
             if (userRole == "Student")
             {
                 userId = currentUserId;

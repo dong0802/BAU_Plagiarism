@@ -56,9 +56,9 @@ namespace BAU_Plagiarism_System.API.Controllers
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
 
                 if (file == null || file.Length == 0)
-                    return BadRequest(new { message = "No file uploaded" });
+                    return BadRequest(new { message = "Không có tệp được tải lên" });
 
-                // Read file content
+                // Đọc nội dung tệp
                 using var memoryStream = new MemoryStream();
                 await file.CopyToAsync(memoryStream);
                 var fileContent = memoryStream.ToArray();
@@ -77,6 +77,26 @@ namespace BAU_Plagiarism_System.API.Controllers
                 };
 
                 var document = await _documentService.UploadDocumentAsync(userId, dto);
+                return CreatedAtAction(nameof(GetDocument), new { id = document.Id }, document);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("paste-text")]
+        public async Task<ActionResult<DocumentDto>> CreateFromText([FromBody] DocumentTextDto dto)
+        {
+            Console.WriteLine($"[DOC-CONTROLLER] CreateFromText called. Title: {dto.Title}");
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+
+                if (string.IsNullOrWhiteSpace(dto.Content))
+                    return BadRequest(new { message = "Nội dung không được để trống" });
+
+                var document = await _documentService.CreateDocumentFromTextAsync(userId, dto);
                 return CreatedAtAction(nameof(GetDocument), new { id = document.Id }, document);
             }
             catch (Exception ex)
@@ -112,7 +132,7 @@ namespace BAU_Plagiarism_System.API.Controllers
 
             var fileContent = await _documentService.DownloadDocumentAsync(id);
             if (fileContent == null)
-                return NotFound(new { message = "File not found" });
+                return NotFound(new { message = "Không tìm thấy tệp" });
 
             return File(fileContent, "application/octet-stream", document.OriginalFileName);
         }

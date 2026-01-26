@@ -32,6 +32,15 @@ namespace BAU_Plagiarism_System.Data.Models
         [StringLength(1000)]
         public string? Notes { get; set; }
 
+        // AI Detection Fields
+        [Column(TypeName = "decimal(5,2)")]
+        public decimal? AiProbability { get; set; } // Tỷ lệ nghi ngờ AI (%)
+
+        [StringLength(50)]
+        public string? AiDetectionLevel { get; set; } // Low, Medium, High
+
+        public string? AiDetectionJson { get; set; } // Dữ liệu chi tiết về AI detection
+
         // Navigation Properties
         [ForeignKey("SourceDocumentId")]
         public virtual Document SourceDocument { get; set; } = null!;

@@ -20,7 +20,7 @@ namespace BAU_Plagiarism_System.Core.Services
             _documentReader = documentReader;
             _uploadPath = uploadPath;
 
-            // Ensure upload directory exists
+            // Đảm bảo thư mục tải lên tồn tại
             if (!Directory.Exists(_uploadPath))
                 Directory.CreateDirectory(_uploadPath);
         }
@@ -93,7 +93,7 @@ namespace BAU_Plagiarism_System.Core.Services
 
         public async Task<DocumentDto> UploadDocumentAsync(int userId, DocumentUploadDto dto)
         {
-            // Check if user already uploaded this file recently (within 2 hours) to avoid duplicates in storage
+            // Kiểm tra xem người dùng đã tải tệp này lên gần đây không (trong vòng 2 giờ) để tránh bản sao trong bộ lưu trữ
             var existingDoc = await _context.Documents
                 .Where(d => d.UserId == userId && 
                            d.OriginalFileName == dto.FileName && 
@@ -104,7 +104,7 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (existingDoc != null)
             {
-                // Reuse existing document if found
+                // Tái sử dụng tài liệu hiện có nếu tìm thấy
                 await _context.Entry(existingDoc).Reference(d => d.User).LoadAsync();
                 if (existingDoc.SubjectId.HasValue)
                     await _context.Entry(existingDoc).Reference(d => d.Subject).LoadAsync();
@@ -128,12 +128,12 @@ namespace BAU_Plagiarism_System.Core.Services
                 };
             }
 
-            // Save file to disk
+            // Lưu tệp vào đĩa
             var fileName = $"{Guid.NewGuid()}_{dto.FileName}";
             var filePath = Path.Combine(_uploadPath, fileName);
             await File.WriteAllBytesAsync(filePath, dto.FileContent);
 
-            // Extract text content from file
+            // Trích xuất nội dung văn bản từ tệp
             string content;
             try
             {
@@ -141,12 +141,12 @@ namespace BAU_Plagiarism_System.Core.Services
             }
             catch (Exception ex)
             {
-                // If extraction fails, delete the file and throw
+                // Nếu trích xuất thất bại, xóa tệp và ném lỗi
                 File.Delete(filePath);
-                throw new Exception($"Failed to extract text from document: {ex.Message}");
+                throw new Exception($"Không thể trích xuất văn bản từ tài liệu: {ex.Message}");
             }
 
-            // Create document entity
+            // Tạo thực thể tài liệu
             var document = new Document
             {
                 Title = dto.Title,
@@ -167,7 +167,54 @@ namespace BAU_Plagiarism_System.Core.Services
             _context.Documents.Add(document);
             await _context.SaveChangesAsync();
 
-            // Load related entities
+            // Tải các thực thể liên quan
+            await _context.Entry(document).Reference(d => d.User).LoadAsync();
+            if (document.SubjectId.HasValue)
+                await _context.Entry(document).Reference(d => d.Subject).LoadAsync();
+
+            return new DocumentDto
+            {
+                Id = document.Id,
+                Title = document.Title,
+                DocumentType = document.DocumentType,
+                OriginalFileName = document.OriginalFileName,
+                FileSize = document.FileSize,
+                UserId = document.UserId,
+                UserName = document.User.FullName,
+                SubjectId = document.SubjectId,
+                SubjectName = document.Subject?.Name,
+                Semester = document.Semester,
+                Year = document.Year,
+                UploadDate = document.UploadDate,
+                IsPublic = document.IsPublic,
+                IsActive = document.IsActive
+            };
+        }
+
+        public async Task<DocumentDto> CreateDocumentFromTextAsync(int userId, DocumentTextDto dto)
+        {
+            // Tạo thực thể tài liệu
+            var document = new Document
+            {
+                Title = string.IsNullOrWhiteSpace(dto.Title) ? $"Văn bản dán_{DateTime.Now:yyyyMMdd_HHmm}" : dto.Title,
+                DocumentType = dto.DocumentType,
+                Content = dto.Content,
+                OriginalFileName = "pasted_text.txt",
+                FilePath = string.Empty, // Không có tệp vật lý cho văn bản dán
+                FileSize = System.Text.Encoding.UTF8.GetByteCount(dto.Content),
+                UserId = userId,
+                SubjectId = dto.SubjectId,
+                Semester = dto.Semester,
+                Year = dto.Year,
+                IsPublic = dto.IsPublic,
+                IsActive = dto.IsActive,
+                UploadDate = DateTime.Now
+            };
+
+            _context.Documents.Add(document);
+            await _context.SaveChangesAsync();
+
+            // Tải các thực thể liên quan
             await _context.Entry(document).Reference(d => d.User).LoadAsync();
             if (document.SubjectId.HasValue)
                 await _context.Entry(document).Reference(d => d.Subject).LoadAsync();
@@ -234,11 +281,11 @@ namespace BAU_Plagiarism_System.Core.Services
             var document = await _context.Documents.FindAsync(id);
             if (document == null) return false;
 
-            // Soft delete
+            // Xóa mềm
             document.IsActive = false;
             await _context.SaveChangesAsync();
 
-            // Optionally delete physical file
+            // Tùy chọn xóa tệp vật lý
             if (!string.IsNullOrEmpty(document.FilePath) && File.Exists(document.FilePath))
             {
                 try
@@ -247,7 +294,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 }
                 catch
                 {
-                    // Log error but don't fail the operation
+                    // Ghi lại lỗi nhưng không làm thất bại hoạt động
                 }
             }
 

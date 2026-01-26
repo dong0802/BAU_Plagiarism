@@ -140,6 +140,9 @@ CREATE TABLE PlagiarismChecks (
     Status NVARCHAR(50) NOT NULL DEFAULT 'Completed', -- 'Processing', 'Completed', 'Failed'
     TotalMatchedDocuments INT NOT NULL DEFAULT 0,
     Notes NVARCHAR(1000),
+    AiProbability DECIMAL(5,2),
+    AiDetectionLevel NVARCHAR(50),
+    AiDetectionJson NVARCHAR(MAX),
     CONSTRAINT FK_PlagiarismChecks_Documents FOREIGN KEY (SourceDocumentId) REFERENCES Documents(Id) ON DELETE CASCADE,
     CONSTRAINT FK_PlagiarismChecks_Users FOREIGN KEY (UserId) REFERENCES Users(Id)
 );
