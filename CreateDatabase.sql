@@ -91,6 +91,11 @@ CREATE TABLE Users (
     IsActive BIT NOT NULL DEFAULT 1,
     CreatedDate DATETIME2 NOT NULL DEFAULT GETDATE(),
     LastLoginDate DATETIME2,
+    PasswordResetToken NVARCHAR(10),
+    PasswordResetTokenExpires DATETIME2,
+    DailyCheckLimit INT NOT NULL DEFAULT 5,
+    ChecksUsedToday INT NOT NULL DEFAULT 0,
+    LastCheckResetDate DATETIME2,
     CONSTRAINT FK_Users_Faculties FOREIGN KEY (FacultyId) REFERENCES Faculties(Id),
     CONSTRAINT FK_Users_Departments FOREIGN KEY (DepartmentId) REFERENCES Departments(Id)
 );
@@ -115,6 +120,7 @@ CREATE TABLE Documents (
     UserId INT NOT NULL,
     SubjectId INT,
     Semester NVARCHAR(50),
+    ClassName NVARCHAR(100),
     Year INT,
     UploadDate DATETIME2 NOT NULL DEFAULT GETDATE(),
     IsPublic BIT NOT NULL DEFAULT 0,
