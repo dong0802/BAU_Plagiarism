@@ -40,6 +40,9 @@ namespace BAU_Plagiarism_System.Data.Models
         [StringLength(50)]
         public string? Semester { get; set; } // Học kỳ: "HK1-2024", "HK2-2024"
 
+        [StringLength(100)]
+        public string? ClassName { get; set; } // Tên lớp: "NH01", "K24_CNTT"
+
         public int? Year { get; set; } // Năm học: 2024
 
         public DateTime UploadDate { get; set; } = DateTime.Now;

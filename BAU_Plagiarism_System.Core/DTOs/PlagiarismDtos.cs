@@ -29,6 +29,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int StartPosition { get; set; }
         public int EndPosition { get; set; }
         public decimal SimilarityScore { get; set; }
+        public string? FullContent { get; set; } // Nội dung đầy đủ của tài liệu trùng khớp
+        public string? Author { get; set; } // Username của tác giả
+        public string? AuthorName { get; set; } // Tên đầy đủ của tác giả
+
     }
 
     public class CreatePlagiarismCheckDto
@@ -60,6 +64,8 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int MatchedDocumentId { get; set; }
         public string MatchedDocumentTitle { get; set; } = string.Empty;
         public string Author { get; set; } = string.Empty;
+        public string AuthorName { get; set; } = string.Empty; // Tên tác giả (User FullName)
+        public string? FullContent { get; set; } // Nội dung đầy đủ để đối soát
         public decimal SimilarityPercentage { get; set; }
         public List<TextMatchDto> TextMatches { get; set; } = new();
     }

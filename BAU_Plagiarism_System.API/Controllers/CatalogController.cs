@@ -109,9 +109,9 @@ namespace BAU_Plagiarism_System.API.Controllers
 
         // ============= SUBJECT ENDPOINTS =============
         [HttpGet("subjects")]
-        public async Task<ActionResult<List<SubjectDto>>> GetSubjects([FromQuery] int? departmentId = null)
+        public async Task<ActionResult<List<SubjectDto>>> GetSubjects([FromQuery] int? departmentId = null, [FromQuery] int? facultyId = null)
         {
-            var subjects = await _catalogService.GetAllSubjectsAsync(departmentId);
+            var subjects = await _catalogService.GetAllSubjectsAsync(departmentId, facultyId);
             return Ok(subjects);
         }
 

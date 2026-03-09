@@ -232,14 +232,18 @@ namespace BAU_Plagiarism_System.Core.Services
         }
 
         // ============= SUBJECT MANAGEMENT =============
-        public async Task<List<SubjectDto>> GetAllSubjectsAsync(int? departmentId = null)
+        public async Task<List<SubjectDto>> GetAllSubjectsAsync(int? departmentId = null, int? facultyId = null)
         {
             var query = _context.Subjects
                 .Include(s => s.Department)
+                    .ThenInclude(d => d.Faculty)
                 .Where(s => s.IsActive);
 
             if (departmentId.HasValue)
                 query = query.Where(s => s.DepartmentId == departmentId.Value);
+
+            if (facultyId.HasValue)
+                query = query.Where(s => s.Department != null && s.Department.FacultyId == facultyId.Value);
 
             return await query
                 .OrderBy(s => s.Name)
@@ -252,6 +256,8 @@ namespace BAU_Plagiarism_System.Core.Services
                     Credits = s.Credits,
                     DepartmentId = s.DepartmentId,
                     DepartmentName = s.Department.Name,
+                    FacultyId = s.Department != null ? s.Department.FacultyId : (int?)null,
+                    FacultyName = s.Department != null && s.Department.Faculty != null ? s.Department.Faculty.Name : null,
                     IsActive = s.IsActive,
                     CreatedDate = s.CreatedDate
                 })
@@ -262,6 +268,7 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             var subject = await _context.Subjects
                 .Include(s => s.Department)
+                    .ThenInclude(d => d.Faculty)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (subject == null) return null;
@@ -275,6 +282,8 @@ namespace BAU_Plagiarism_System.Core.Services
                 Credits = subject.Credits,
                 DepartmentId = subject.DepartmentId,
                 DepartmentName = subject.Department.Name,
+                FacultyId = subject.Department != null ? subject.Department.FacultyId : (int?)null,
+                FacultyName = subject.Department != null && subject.Department.Faculty != null ? subject.Department.Faculty.Name : null,
                 IsActive = subject.IsActive,
                 CreatedDate = subject.CreatedDate
             };
@@ -338,6 +347,8 @@ namespace BAU_Plagiarism_System.Core.Services
                 Credits = subject.Credits,
                 DepartmentId = subject.DepartmentId,
                 DepartmentName = subject.Department.Name,
+                FacultyId = subject.Department != null ? subject.Department.FacultyId : (int?)null,
+                FacultyName = subject.Department != null && subject.Department.Faculty != null ? subject.Department.Faculty.Name : null,
                 IsActive = subject.IsActive,
                 CreatedDate = subject.CreatedDate
             };

@@ -66,6 +66,8 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int Credits { get; set; }
         public int DepartmentId { get; set; }
         public string DepartmentName { get; set; } = string.Empty;
+        public int? FacultyId { get; set; }
+        public string? FacultyName { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedDate { get; set; }
     }

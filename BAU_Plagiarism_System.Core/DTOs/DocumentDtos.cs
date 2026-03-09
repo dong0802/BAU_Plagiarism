@@ -12,7 +12,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string UserName { get; set; } = string.Empty;
         public int? SubjectId { get; set; }
         public string? SubjectName { get; set; }
+        public int? FacultyId { get; set; }
+        public string? FacultyName { get; set; }
         public string? Semester { get; set; }
+        public string? ClassName { get; set; }
         public int? Year { get; set; }
         public DateTime UploadDate { get; set; }
         public bool IsPublic { get; set; }
@@ -25,6 +28,7 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string DocumentType { get; set; } = "Essay";
         public int? SubjectId { get; set; }
         public string? Semester { get; set; }
+        public string? ClassName { get; set; }
         public int? Year { get; set; }
         public bool IsPublic { get; set; } = false;
     }
@@ -35,6 +39,7 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string DocumentType { get; set; } = string.Empty;
         public int? SubjectId { get; set; }
         public string? Semester { get; set; }
+        public string? ClassName { get; set; }
         public int? Year { get; set; }
         public bool IsPublic { get; set; }
         public bool IsActive { get; set; }
@@ -46,11 +51,13 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string DocumentType { get; set; } = "Essay";
         public int? SubjectId { get; set; }
         public string? Semester { get; set; }
+        public string? ClassName { get; set; }
         public int? Year { get; set; }
         public bool IsPublic { get; set; } = false;
         public bool IsActive { get; set; } = true;
-        public byte[] FileContent { get; set; } = Array.Empty<byte>();
+        public Stream? FileStream { get; set; }
         public string FileName { get; set; } = string.Empty;
+        public long FileSize { get; set; }
     }
 
     public class DocumentTextDto : CreateDocumentDto

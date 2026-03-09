@@ -23,12 +23,22 @@ interface User {
     role: string;
     studentId?: string;
     lecturerId?: string;
+    facultyId?: number;
+    facultyName?: string;
     isActive: boolean;
     createdDate: string;
+    phoneNumber?: string;
+}
+
+interface Faculty {
+    id: number;
+    name: string;
+    code: string;
 }
 
 const UserManagementPage: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
+    const [faculties, setFaculties] = useState<Faculty[]>([]);
     const [loading, setLoading] = useState(false);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -41,25 +51,27 @@ const UserManagementPage: React.FC = () => {
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            // Trong thực tế sẽ gọi API
             const response = await axiosClient.get<User[]>('/users');
             setUsers(response as unknown as User[]);
         } catch (error) {
             console.error('Failed to fetch users:', error);
-            // Mock data for demo if API fails
-            const mockUsers: User[] = [
-                { id: 1, username: 'admin', fullName: 'Quản trị viên', email: 'admin@bau.edu.vn', role: 'Admin', isActive: true, createdDate: '2024-01-01' },
-                { id: 2, username: 'gv001', fullName: 'TS. Nguyễn Văn An', email: 'nvan@bau.edu.vn', role: 'Admin', lecturerId: 'GV001', isActive: true, createdDate: '2024-01-10' },
-                { id: 3, username: '21a4010001', fullName: 'Nguyễn Văn A', email: '21a4010001@sv.bau.edu.vn', role: 'Student', studentId: '21A4010001', isActive: true, createdDate: '2024-01-15' },
-            ];
-            setUsers(mockUsers);
         } finally {
             setLoading(false);
         }
     };
 
+    const fetchFaculties = async () => {
+        try {
+            const response = await axiosClient.get<Faculty[]>('/catalog/faculties');
+            setFaculties(response as unknown as Faculty[]);
+        } catch (error) {
+            console.error('Failed to fetch faculties:', error);
+        }
+    };
+
     useEffect(() => {
         fetchUsers();
+        fetchFaculties();
     }, []);
 
     const showModal = (user?: User) => {
@@ -69,6 +81,7 @@ const UserManagementPage: React.FC = () => {
         } else {
             setEditingUser(null);
             form.resetFields();
+            form.setFieldsValue({ isActive: true, role: 'Student' });
         }
         setIsModalVisible(true);
     };
@@ -116,9 +129,23 @@ const UserManagementPage: React.FC = () => {
             key: 'fullName',
         },
         {
-            title: 'Email',
-            dataIndex: 'email',
-            key: 'email',
+            title: 'Số điện thoại',
+            dataIndex: 'phoneNumber',
+            key: 'phoneNumber',
+            render: (text: string) => text || <span style={{ color: '#ccc' }}>--</span>,
+        },
+        {
+            title: 'Mã định danh',
+            key: 'identifier',
+            render: (_: any, record: User) => (
+                <span>{record.role === 'Student' ? record.studentId : record.lecturerId}</span>
+            ),
+        },
+        {
+            title: 'Khoa',
+            dataIndex: 'facultyName',
+            key: 'facultyName',
+            render: (text: string) => text || <span style={{ color: '#ccc' }}>Chưa cập nhật</span>,
         },
         {
             title: 'Vai trò',
@@ -177,7 +204,9 @@ const UserManagementPage: React.FC = () => {
 
     const filteredUsers = users.filter(u =>
         u.fullName.toLowerCase().includes(searchText.toLowerCase()) ||
-        u.username.toLowerCase().includes(searchText.toLowerCase())
+        u.username.toLowerCase().includes(searchText.toLowerCase()) ||
+        (u.facultyName && u.facultyName.toLowerCase().includes(searchText.toLowerCase())) ||
+        (u.phoneNumber && u.phoneNumber.includes(searchText))
     );
 
     return (
@@ -201,10 +230,10 @@ const UserManagementPage: React.FC = () => {
 
                 <div style={{ marginBottom: 16 }}>
                     <Input
-                        placeholder="Tìm kiếm theo tên hoặc tài khoản..."
+                        placeholder="Tìm kiếm theo tên, tài khoản hoặc khoa..."
                         prefix={<SearchOutlined />}
                         onChange={e => setSearchText(e.target.value)}
-                        style={{ width: 300 }}
+                        style={{ width: 350 }}
                     />
                 </div>
 
@@ -268,6 +297,13 @@ const UserManagementPage: React.FC = () => {
                         </Form.Item>
 
                         <Form.Item
+                            name="phoneNumber"
+                            label="Số điện thoại"
+                        >
+                            <Input placeholder="Nhập số điện thoại liên hệ" />
+                        </Form.Item>
+
+                        <Form.Item
                             name="role"
                             label="Vai trò"
                             rules={[{ required: true, message: 'Vui lòng chọn vai trò' }]}
@@ -279,9 +315,20 @@ const UserManagementPage: React.FC = () => {
                         </Form.Item>
 
                         <Form.Item
+                            name="facultyId"
+                            label="Thuộc Khoa"
+                            rules={[{ required: true, message: 'Vui lòng chọn khoa' }]}
+                        >
+                            <Select placeholder="Chọn khoa">
+                                {faculties.map(f => (
+                                    <Option key={f.id} value={f.id}>{f.name}</Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+
+                        <Form.Item
                             name="isActive"
                             label="Trạng thái"
-                            initialValue={true}
                         >
                             <Select>
                                 <Option value={true}>Hoạt động</Option>
@@ -307,7 +354,7 @@ const UserManagementPage: React.FC = () => {
                                     return (
                                         <Form.Item
                                             name="lecturerId"
-                                            label="Mã giảng viên (nêu có)"
+                                            label="Mã giảng viên"
                                         >
                                             <Input placeholder="GVXXX" />
                                         </Form.Item>

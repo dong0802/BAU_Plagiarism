@@ -37,6 +37,7 @@ namespace BAU_Plagiarism_System.API.Controllers
         [HttpPost]
         public async Task<ActionResult<UserDto>> CreateUser([FromBody] CreateUserDto dto)
         {
+            Console.WriteLine($"[USER-CONTROLLER] CreateUser: Username={dto.Username}, StudentId={dto.StudentId}, LecturerId={dto.LecturerId}");
             try
             {
                 var user = await _userService.CreateUserAsync(dto);
@@ -51,6 +52,7 @@ namespace BAU_Plagiarism_System.API.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult<UserDto>> UpdateUser(int id, [FromBody] UpdateUserDto dto)
         {
+            Console.WriteLine($"[USER-CONTROLLER] UpdateUser: Id={id}, StudentId={dto.StudentId}, LecturerId={dto.LecturerId}, Phone={dto.PhoneNumber}");
             var user = await _userService.UpdateUserAsync(id, dto);
             if (user == null)
                 return NotFound();

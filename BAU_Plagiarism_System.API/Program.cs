@@ -8,12 +8,46 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Hangfire.Dashboard;
 
+// ===== GLOBAL CRASH HANDLERS (bắt mọi exception trên mọi thread, kể cả Hangfire) =====
+var crashLogPath = @"C:\crash_log.txt"; // Ghi trực tiếp vào ổ C để dễ kiểm tra
+
+AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+{
+    var ex = args.ExceptionObject as Exception;
+    var msg = $"[FATAL CRASH {DateTime.Now}] UnhandledException (IsTerminating={args.IsTerminating}):\n{ex}\n\n";
+    Console.WriteLine(msg);
+    try { File.AppendAllText(crashLogPath, msg); } catch { }
+};
+
+TaskScheduler.UnobservedTaskException += (sender, args) =>
+{
+    var msg = $"[UNOBSERVED TASK ERROR {DateTime.Now}]:\n{args.Exception}\n\n";
+    Console.WriteLine(msg);
+    try { File.AppendAllText(crashLogPath, msg); } catch { }
+    args.SetObserved(); // Ngăn không cho crash process
+};
+
+Console.WriteLine($"[STARTUP] Crash log path: {crashLogPath}");
+// ======================================================================================
+
 try 
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    // Add services to the container.
-    builder.Services.AddControllers();
+    // Cấu hình Kestrel cho phép upload file lớn (tránh crash khi chạy VS debug mode)
+    builder.WebHost.ConfigureKestrel(serverOptions =>
+    {
+        serverOptions.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100MB
+    });
+
+    // Add services with JSON loop protection
+    builder.Services.AddControllers()
+        .AddJsonOptions(options => {
+            options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+            options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+            options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+            options.JsonSerializerOptions.MaxDepth = 32;
+        });
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c => {
         c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "BAU Plagiarism System API", Version = "v1" });
@@ -69,7 +103,7 @@ try
     builder.Services.AddScoped<DocumentQualityService>();
     builder.Services.AddScoped<WebSearchService>();
 
-    // Hangfire Configuration
+    // Thêm cấu hình Hangfire
     builder.Services.AddHangfire(configuration => configuration
         .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
         .UseSimpleAssemblyNameTypeSerializer()
@@ -83,7 +117,13 @@ try
             DisableGlobalLocks = true
         }));
 
-    builder.Services.AddHangfireServer();
+    // Giảm số lượng worker để tiết kiệm bộ nhớ (đặc biệt quan trọng khi chạy VS debug mode)
+    int workerCount = builder.Environment.IsDevelopment() ? 2 : 10;
+    builder.Services.AddHangfireServer(options => {
+        options.WorkerCount = workerCount;
+    });
+
+    Console.WriteLine($"[STARTUP] Hangfire configured with {workerCount} workers.");
 
     // Register AuthService with configuration
     builder.Services.AddScoped<AuthService>(provider =>
@@ -160,8 +200,15 @@ try
         } catch (Exception ex) {
             Console.WriteLine($"[RUNTIME ERROR] {DateTime.Now}: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
-            await File.AppendAllTextAsync("runtime_errors.log", $"{DateTime.Now}: {ex}\n\n");
-            throw;
+            try {
+                await File.AppendAllTextAsync("runtime_errors.log", $"{DateTime.Now}: {ex}\n\n");
+            } catch {}
+            
+            if (!context.Response.HasStarted) {
+                context.Response.StatusCode = 500;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new { message = "Lỗi hệ thống: " + ex.Message });
+            }
         }
     });
 
@@ -192,42 +239,15 @@ try
         try {
             var context = scope.ServiceProvider.GetRequiredService<BAUDbContext>();
             
-            // 1. Aggressive Raw SQL Schema Update (Must run BEFORE any EF queries)
-            Console.WriteLine("Checking for missing AI columns...");
-            var conn = context.Database.GetDbConnection();
-            await conn.OpenAsync();
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-                    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('PlagiarismChecks') AND name = 'AiProbability')
-                    BEGIN
-                        ALTER TABLE PlagiarismChecks ADD AiProbability DECIMAL(5,2) NULL;
-                        ALTER TABLE PlagiarismChecks ADD AiDetectionLevel NVARCHAR(50) NULL;
-                        ALTER TABLE PlagiarismChecks ADD AiDetectionJson NVARCHAR(MAX) NULL;
-                    END";
-                await cmd.ExecuteNonQueryAsync();
-            }
-            Console.WriteLine("AI Columns check completed.");
-
             // 2. Standard Migrations
-            Console.WriteLine("Applying database migrations...");
+            Console.WriteLine("[DB-INIT] Applying migrations...");
             await context.Database.MigrateAsync();
-            Console.WriteLine("Database migrations applied successfully.");
             
-            // Seed data only if needed
-            if (!context.Faculties.Any())
-            {
-                Console.WriteLine("Seeding initial data...");
-                await BAU_Plagiarism_System.API.Data.SeedData.SeedAsync(context);
-                
-                Console.WriteLine("Seeding 100+ more documents for testing...");
-                await BAU_Plagiarism_System.API.Data.MassiveDataSeeder.SeedMassiveAsync(context, 100);
-                
-                Console.WriteLine("All seeding completed successfully.");
-            }
-            else {
-                Console.WriteLine("Database already seeded, skipping startup tasks.");
-            }
+            // 3. Seed data / Update Master Data
+            Console.WriteLine("[DB-INIT] Initializing Master Data...");
+            await BAU_Plagiarism_System.API.Data.SeedData.SeedAsync(context);
+            
+            Console.WriteLine("[DB-INIT] Initializing completed.");
         } catch (Exception ex) {
             Console.WriteLine($"Database/Seed Error: {ex.Message}");
             Console.WriteLine($"Stack Trace: {ex.StackTrace}");

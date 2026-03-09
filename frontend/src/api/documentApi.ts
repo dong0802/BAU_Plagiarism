@@ -5,6 +5,7 @@ export interface DocumentUploadDto {
     documentType: string;
     subjectId?: number;
     semester?: string;
+    className?: string;
     year?: number;
     isPublic: boolean;
     isActive?: boolean;
@@ -29,7 +30,10 @@ export interface DocumentDto {
     userName: string;
     subjectId?: number;
     subjectName?: string;
+    facultyId?: number;
+    facultyName?: string;
     semester?: string;
+    className?: string;
     year?: number;
     uploadDate: string;
     isPublic: boolean;
@@ -53,6 +57,7 @@ const documentApi = {
         formData.append('documentType', data.documentType);
         if (data.subjectId) formData.append('subjectId', data.subjectId.toString());
         if (data.semester) formData.append('semester', data.semester);
+        if (data.className) formData.append('className', data.className);
         if (data.year) formData.append('year', data.year.toString());
         formData.append('isPublic', data.isPublic.toString());
         if (data.isActive !== undefined) formData.append('isActive', data.isActive.toString());

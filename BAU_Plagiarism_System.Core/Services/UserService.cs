@@ -212,6 +212,8 @@ namespace BAU_Plagiarism_System.Core.Services
             user.FullName = dto.FullName;
             user.Email = dto.Email;
             user.PhoneNumber = dto.PhoneNumber;
+            user.StudentId = dto.StudentId;
+            user.LecturerId = dto.LecturerId;
             user.FacultyId = dto.FacultyId;
             user.DepartmentId = dto.DepartmentId;
             user.IsActive = dto.IsActive;

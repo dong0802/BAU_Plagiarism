@@ -44,6 +44,8 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? PhoneNumber { get; set; }
+        public string? StudentId { get; set; }
+        public string? LecturerId { get; set; }
         public int? FacultyId { get; set; }
         public int? DepartmentId { get; set; }
         public bool IsActive { get; set; }

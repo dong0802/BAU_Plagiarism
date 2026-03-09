@@ -30,6 +30,8 @@ namespace BAU_Plagiarism_System.Core.Services
             var query = _context.Documents
                 .Include(d => d.User)
                 .Include(d => d.Subject)
+                    .ThenInclude(s => s.Department)
+                        .ThenInclude(dep => dep.Faculty)
                 .Where(d => d.IsActive);
 
             if (userId.HasValue)
@@ -54,7 +56,11 @@ namespace BAU_Plagiarism_System.Core.Services
                     UserName = d.User.FullName,
                     SubjectId = d.SubjectId,
                     SubjectName = d.Subject != null ? d.Subject.Name : null,
+                    FacultyId = d.Subject != null && d.Subject.Department != null ? d.Subject.Department.FacultyId : null,
+                    FacultyName = d.Subject != null && d.Subject.Department != null && d.Subject.Department.Faculty != null 
+                        ? d.Subject.Department.Faculty.Name : null,
                     Semester = d.Semester,
+                    ClassName = d.ClassName,
                     Year = d.Year,
                     UploadDate = d.UploadDate,
                     IsPublic = d.IsPublic,
@@ -65,30 +71,32 @@ namespace BAU_Plagiarism_System.Core.Services
 
         public async Task<DocumentDto?> GetDocumentByIdAsync(int id)
         {
-            var document = await _context.Documents
-                .Include(d => d.User)
-                .Include(d => d.Subject)
-                .FirstOrDefaultAsync(d => d.Id == id);
+            var documentDto = await _context.Documents
+                .AsNoTracking()
+                .Where(d => d.Id == id)
+                .Select(d => new DocumentDto
+                {
+                    Id = d.Id,
+                    Title = d.Title,
+                    DocumentType = d.DocumentType,
+                    OriginalFileName = d.OriginalFileName,
+                    FileSize = d.FileSize,
+                    UserId = d.UserId,
+                    UserName = d.User.FullName,
+                    SubjectId = d.SubjectId,
+                    SubjectName = d.Subject != null ? d.Subject.Name : null,
+                    FacultyName = d.Subject != null && d.Subject.Department != null && d.Subject.Department.Faculty != null 
+                        ? d.Subject.Department.Faculty.Name : null,
+                    Semester = d.Semester,
+                    ClassName = d.ClassName,
+                    Year = d.Year,
+                    UploadDate = d.UploadDate,
+                    IsPublic = d.IsPublic,
+                    IsActive = d.IsActive
+                })
+                .FirstOrDefaultAsync();
 
-            if (document == null) return null;
-
-            return new DocumentDto
-            {
-                Id = document.Id,
-                Title = document.Title,
-                DocumentType = document.DocumentType,
-                OriginalFileName = document.OriginalFileName,
-                FileSize = document.FileSize,
-                UserId = document.UserId,
-                UserName = document.User.FullName,
-                SubjectId = document.SubjectId,
-                SubjectName = document.Subject?.Name,
-                Semester = document.Semester,
-                Year = document.Year,
-                UploadDate = document.UploadDate,
-                IsPublic = document.IsPublic,
-                IsActive = document.IsActive
-            };
+            return documentDto;
         }
 
         public async Task<DocumentDto> UploadDocumentAsync(int userId, DocumentUploadDto dto)
@@ -97,7 +105,7 @@ namespace BAU_Plagiarism_System.Core.Services
             var existingDoc = await _context.Documents
                 .Where(d => d.UserId == userId && 
                            d.OriginalFileName == dto.FileName && 
-                           d.FileSize == dto.FileContent.Length &&
+                           d.FileSize == dto.FileSize &&
                            d.UploadDate > DateTime.Now.AddHours(-2))
                 .OrderByDescending(d => d.UploadDate)
                 .FirstOrDefaultAsync();
@@ -107,7 +115,15 @@ namespace BAU_Plagiarism_System.Core.Services
                 // Tái sử dụng tài liệu hiện có nếu tìm thấy
                 await _context.Entry(existingDoc).Reference(d => d.User).LoadAsync();
                 if (existingDoc.SubjectId.HasValue)
+                {
                     await _context.Entry(existingDoc).Reference(d => d.Subject).LoadAsync();
+                    if (existingDoc.Subject != null)
+                    {
+                        await _context.Entry(existingDoc.Subject).Reference(s => s.Department).LoadAsync();
+                        if (existingDoc.Subject.Department != null)
+                            await _context.Entry(existingDoc.Subject.Department).Reference(dep => dep.Faculty).LoadAsync();
+                    }
+                }
 
                 return new DocumentDto
                 {
@@ -117,10 +133,13 @@ namespace BAU_Plagiarism_System.Core.Services
                     OriginalFileName = existingDoc.OriginalFileName,
                     FileSize = existingDoc.FileSize,
                     UserId = existingDoc.UserId,
-                    UserName = existingDoc.User.FullName,
+                    UserName = existingDoc.User?.FullName ?? "N/A",
                     SubjectId = existingDoc.SubjectId,
                     SubjectName = existingDoc.Subject?.Name,
+                    FacultyId = existingDoc.Subject?.Department?.FacultyId,
+                    FacultyName = existingDoc.Subject?.Department?.Faculty?.Name,
                     Semester = existingDoc.Semester,
+                    ClassName = existingDoc.ClassName,
                     Year = existingDoc.Year,
                     UploadDate = existingDoc.UploadDate,
                     IsPublic = existingDoc.IsPublic,
@@ -131,18 +150,34 @@ namespace BAU_Plagiarism_System.Core.Services
             // Lưu tệp vào đĩa
             var fileName = $"{Guid.NewGuid()}_{dto.FileName}";
             var filePath = Path.Combine(_uploadPath, fileName);
-            await File.WriteAllBytesAsync(filePath, dto.FileContent);
+            Console.WriteLine($"[DocumentService] Saving file to disk: {filePath}");
+
+            if (dto.FileStream != null)
+            {
+                using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+                {
+                    await dto.FileStream.CopyToAsync(fileStream);
+                }
+                dto.FileStream.Close();
+                dto.FileStream.Dispose();
+            }
+            Console.WriteLine($"[DocumentService] File saved to disk. Path: {filePath}");
 
             // Trích xuất nội dung văn bản từ tệp
             string content;
             try
             {
+                Console.WriteLine($"[DocumentService] Extracting text from {filePath}...");
                 content = await _documentReader.ExtractTextAsync(filePath);
+                Console.WriteLine($"[DocumentService] Text extracted successfully. Length: {content?.Length ?? 0}");
             }
             catch (Exception ex)
             {
-                // Nếu trích xuất thất bại, xóa tệp và ném lỗi
-                File.Delete(filePath);
+                // Nếu trích xuất thất bại, cố gắng xóa tệp đã lưu và ném lỗi
+                try {
+                    if (File.Exists(filePath)) File.Delete(filePath);
+                } catch { /* Ignore delete errors to keep original exception */ }
+                
                 throw new Exception($"Không thể trích xuất văn bản từ tài liệu: {ex.Message}");
             }
 
@@ -154,10 +189,11 @@ namespace BAU_Plagiarism_System.Core.Services
                 Content = content,
                 OriginalFileName = dto.FileName,
                 FilePath = filePath,
-                FileSize = dto.FileContent.Length,
+                FileSize = dto.FileSize,
                 UserId = userId,
                 SubjectId = dto.SubjectId,
                 Semester = dto.Semester,
+                ClassName = dto.ClassName,
                 Year = dto.Year,
                 IsPublic = dto.IsPublic,
                 IsActive = dto.IsActive,
@@ -165,12 +201,39 @@ namespace BAU_Plagiarism_System.Core.Services
             };
 
             _context.Documents.Add(document);
-            await _context.SaveChangesAsync();
+            Console.WriteLine("[DocumentService] Saving document metadata to DB...");
+            try 
+            {
+                await _context.SaveChangesAsync();
+                Console.WriteLine($"[DocumentService] Document saved to DB. ID: {document.Id}");
+            }
+            catch (Exception dbEx)
+            {
+                Console.WriteLine($"[DocumentService] DATABASE ERROR: {dbEx.Message}");
+                if (dbEx.InnerException != null) 
+                    Console.WriteLine($"[DocumentService] INNER ERROR: {dbEx.InnerException.Message}");
+                throw new Exception("Lỗi lưu dữ liệu vào cơ sở dữ liệu. Vui lòng kiểm tra lại thông tin.");
+            }
 
             // Tải các thực thể liên quan
-            await _context.Entry(document).Reference(d => d.User).LoadAsync();
-            if (document.SubjectId.HasValue)
-                await _context.Entry(document).Reference(d => d.Subject).LoadAsync();
+            try 
+            {
+                await _context.Entry(document).Reference(d => d.User).LoadAsync();
+                if (document.SubjectId.HasValue)
+                {
+                    await _context.Entry(document).Reference(d => d.Subject).LoadAsync();
+                    if (document.Subject != null)
+                    {
+                        await _context.Entry(document.Subject).Reference(s => s.Department).LoadAsync();
+                        if (document.Subject.Department != null)
+                            await _context.Entry(document.Subject.Department).Reference(dep => dep.Faculty).LoadAsync();
+                    }
+                }
+            }
+            catch (Exception loadEx)
+            {
+                Console.WriteLine($"[DocumentService] WARNING: Failed to load related entities for display: {loadEx.Message}");
+            }
 
             return new DocumentDto
             {
@@ -180,10 +243,12 @@ namespace BAU_Plagiarism_System.Core.Services
                 OriginalFileName = document.OriginalFileName,
                 FileSize = document.FileSize,
                 UserId = document.UserId,
-                UserName = document.User.FullName,
+                UserName = document.User?.FullName ?? "N/A",
                 SubjectId = document.SubjectId,
                 SubjectName = document.Subject?.Name,
+                FacultyName = document.Subject?.Department?.Faculty?.Name,
                 Semester = document.Semester,
+                ClassName = document.ClassName,
                 Year = document.Year,
                 UploadDate = document.UploadDate,
                 IsPublic = document.IsPublic,
@@ -205,6 +270,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 UserId = userId,
                 SubjectId = dto.SubjectId,
                 Semester = dto.Semester,
+                ClassName = dto.ClassName,
                 Year = dto.Year,
                 IsPublic = dto.IsPublic,
                 IsActive = dto.IsActive,
@@ -217,7 +283,15 @@ namespace BAU_Plagiarism_System.Core.Services
             // Tải các thực thể liên quan
             await _context.Entry(document).Reference(d => d.User).LoadAsync();
             if (document.SubjectId.HasValue)
+            {
                 await _context.Entry(document).Reference(d => d.Subject).LoadAsync();
+                if (document.Subject != null)
+                {
+                    await _context.Entry(document.Subject).Reference(s => s.Department).LoadAsync();
+                    if (document.Subject.Department != null)
+                        await _context.Entry(document.Subject.Department).Reference(dep => dep.Faculty).LoadAsync();
+                }
+            }
 
             return new DocumentDto
             {
@@ -227,10 +301,12 @@ namespace BAU_Plagiarism_System.Core.Services
                 OriginalFileName = document.OriginalFileName,
                 FileSize = document.FileSize,
                 UserId = document.UserId,
-                UserName = document.User.FullName,
+                UserName = document.User?.FullName ?? "N/A",
                 SubjectId = document.SubjectId,
                 SubjectName = document.Subject?.Name,
+                FacultyName = document.Subject?.Department?.Faculty?.Name,
                 Semester = document.Semester,
+                ClassName = document.ClassName,
                 Year = document.Year,
                 UploadDate = document.UploadDate,
                 IsPublic = document.IsPublic,
@@ -241,8 +317,6 @@ namespace BAU_Plagiarism_System.Core.Services
         public async Task<DocumentDto?> UpdateDocumentAsync(int id, UpdateDocumentDto dto)
         {
             var document = await _context.Documents
-                .Include(d => d.User)
-                .Include(d => d.Subject)
                 .FirstOrDefaultAsync(d => d.Id == id);
 
             if (document == null) return null;
@@ -257,23 +331,8 @@ namespace BAU_Plagiarism_System.Core.Services
 
             await _context.SaveChangesAsync();
 
-            return new DocumentDto
-            {
-                Id = document.Id,
-                Title = document.Title,
-                DocumentType = document.DocumentType,
-                OriginalFileName = document.OriginalFileName,
-                FileSize = document.FileSize,
-                UserId = document.UserId,
-                UserName = document.User.FullName,
-                SubjectId = document.SubjectId,
-                SubjectName = document.Subject?.Name,
-                Semester = document.Semester,
-                Year = document.Year,
-                UploadDate = document.UploadDate,
-                IsPublic = document.IsPublic,
-                IsActive = document.IsActive
-            };
+            // Lấy lại info để trả về DTO (không load Content)
+            return await GetDocumentByIdAsync(id);
         }
 
         public async Task<bool> DeleteDocumentAsync(int id)

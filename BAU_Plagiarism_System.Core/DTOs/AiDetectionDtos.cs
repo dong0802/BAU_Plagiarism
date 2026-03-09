@@ -10,6 +10,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public List<AiSentenceResultDto> Sentences { get; set; } = new();
         public string Summary { get; set; } = string.Empty;
         public DateTime CheckedDate { get; set; } = DateTime.Now;
+        
+        // Advanced Metrics
+        public double Perplexity { get; set; }
+        public double Burstiness { get; set; }
     }
 
     public class AiSentenceResultDto

@@ -46,22 +46,24 @@ namespace BAU_Plagiarism_System.API.Controllers
         }
 
         [HttpPost("upload")]
+        [DisableRequestSizeLimit]
+        [RequestFormLimits(MultipartBodyLengthLimit = 104857600)] // 100MB
         public async Task<ActionResult<DocumentDto>> UploadDocument([FromForm] IFormFile file, [FromForm] string title,
             [FromForm] string documentType = "Essay", [FromForm] int? subjectId = null,
-            [FromForm] string? semester = null, [FromForm] int? year = null, 
-            [FromForm] bool isPublic = false, [FromForm] bool isActive = true)
+            [FromForm] string? semester = null, [FromForm] string? className = null, [FromForm] int? year = null, 
+            [FromForm] bool? isPublic = false, [FromForm] bool? isActive = true)
         {
+            var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var userId = int.Parse(userIdStr ?? "0");
+            
+            Console.WriteLine($"[DOC-CONTROLLER] UploadDocument started. User: {userId} ({userIdStr}), Title: {title}, Public: {isPublic}, Active: {isActive}");
+            
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-
                 if (file == null || file.Length == 0)
                     return BadRequest(new { message = "Không có tệp được tải lên" });
 
-                // Đọc nội dung tệp
-                using var memoryStream = new MemoryStream();
-                await file.CopyToAsync(memoryStream);
-                var fileContent = memoryStream.ToArray();
+                Console.WriteLine($"[DOC-CONTROLLER] File received: {file.FileName} ({file.Length} bytes)");
 
                 var dto = new DocumentUploadDto
                 {
@@ -69,19 +71,26 @@ namespace BAU_Plagiarism_System.API.Controllers
                     DocumentType = documentType,
                     SubjectId = subjectId,
                     Semester = semester,
+                    ClassName = className,
                     Year = year,
-                    IsPublic = isPublic,
-                    IsActive = isActive,
-                    FileContent = fileContent,
-                    FileName = file.FileName
+                    IsPublic = isPublic ?? false,
+                    IsActive = isActive ?? true,
+                    FileName = file.FileName,
+                    FileSize = file.Length,
+                    FileStream = file.OpenReadStream() // TỐI ƯU: Đọc trực tiếp từ Stream
                 };
 
+                Console.WriteLine($"[DOC-CONTROLLER] Calling DocumentService.UploadDocumentAsync...");
                 var document = await _documentService.UploadDocumentAsync(userId, dto);
+                Console.WriteLine($"[DOC-CONTROLLER] Upload successful! ID: {document.Id}");
                 return CreatedAtAction(nameof(GetDocument), new { id = document.Id }, document);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                Console.WriteLine($"[DOC-CONTROLLER] UPLOAD FAILED: {ex.Message}");
+                if (ex.InnerException != null) Console.WriteLine($"[DOC-CONTROLLER] INNER ERROR: {ex.InnerException.Message}");
+                Console.WriteLine(ex.StackTrace);
+                return BadRequest(new { message = "Lỗi tải lên: " + ex.Message, details = ex.InnerException?.Message });
             }
         }
 

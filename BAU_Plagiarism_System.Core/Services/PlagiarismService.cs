@@ -95,42 +95,104 @@ namespace BAU_Plagiarism_System.Core.Services
         [AutomaticRetry(Attempts = 2)]
         public async Task ProcessCheckAsync(int checkId)
         {
+            Console.WriteLine($"[PLAGIARISM-BG] ========== START ProcessCheckAsync (CheckId: {checkId}) ==========");
+            
             var check = await _context.PlagiarismChecks
                 .Include(p => p.SourceDocument)
                 .FirstOrDefaultAsync(p => p.Id == checkId);
 
-            if (check == null) return;
+            if (check == null)
+            {
+                Console.WriteLine($"[PLAGIARISM-BG] Check {checkId} not found. Aborting.");
+                return;
+            }
+
+            Console.WriteLine($"[PLAGIARISM-BG] Source doc: ID={check.SourceDocumentId}, ContentLength={check.SourceDocument?.Content?.Length ?? 0}");
 
             try
             {
-                // 1. Kiểm tra độ tương đồng (Đạo văn)
-                var compareDocs = await _context.Documents
-                    .Where(d => d.IsActive && d.IsPublic && d.Id != check.SourceDocumentId)
-                    .ToListAsync();
+                // TỔNG LỰC TỐI ƯU: Tách văn bản nguồn ra các đoạn (segments) CHỈ 1 LẦN duy nhất
+                Console.WriteLine("[PLAGIARISM-BG] Step 0: Pre-splitting source document...");
+                string cleanedSource = _textProcessor.CleanDocument(check.SourceDocument.Content);
+                var sourceSegments = _textProcessor.SplitIntoSmartSegments(cleanedSource);
+                Console.WriteLine($"[PLAGIARISM-BG] Source split into {sourceSegments.Count} segments.");
 
-                var detailedResult = _similarityChecker.AnalyzeDetailed(check.SourceDocument.Content, compareDocs);
+                var analysis = new PlagiarismAnalysis { Segments = sourceSegments.Select(s => new HighlightedSegment { 
+                    Text = s.RawText, 
+                    IsExcluded = s.IsExcluded, 
+                    ExclusionReason = s.ExclusionReason 
+                }).ToList() };
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                
+                int totalDocsProcess = await _context.Documents
+                    .CountAsync(d => d.IsActive && d.IsPublic && d.Id != check.SourceDocumentId);
+                
+                Console.WriteLine($"[PLAGIARISM-BG] Total candidates for comparison: {totalDocsProcess}");
+
+                int batchSize = 15; // Giảm xuống 15 để an toàn hơn nữa
+                for (int i = 0; i < totalDocsProcess; i += batchSize)
+                {
+                    var batchDocs = await _context.Documents
+                        .AsNoTracking()
+                        .Where(d => d.IsActive && d.IsPublic && d.Id != check.SourceDocumentId)
+                        .OrderBy(d => d.Id)
+                        .Skip(i)
+                        .Take(batchSize)
+                        .ToListAsync();
+
+                    Console.WriteLine($"[PLAGIARISM-BG] Comparing batch {i / batchSize + 1} with {batchDocs.Count} docs...");
+                    
+                    // Gọi hàm AnalyzeDetailed với danh sách segments đã có sẵn
+                    _similarityChecker.CompareAgainstBatch(analysis, batchDocs);
+                    
+                    // Giải phóng bộ nhớ batch ngay lập tức
+                    batchDocs.Clear();
+                }
+
+                // Tính toán điểm tổng kết cuối cùng sau khi đã quét hết các batch
+                int totalWords = 0;
+                int matchedWords = 0;
+                foreach(var seg in analysis.Segments)
+                {
+                    if (seg.IsExcluded || string.IsNullOrWhiteSpace(seg.Text)) continue;
+                    
+                    var words = seg.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+                    totalWords += words;
+                    // Tăng ngưỡng lên 40% để tránh các trùng lặp vụn vặt do thuật toán N-gram (Cơ chế giống SimilarityChecker)
+                    if (seg.Score > 40) matchedWords += words;
+                }
+                analysis.OverallScore = totalWords > 0 ? Math.Round((double)matchedWords / totalWords * 100, 2) : 0;
+
+                sw.Stop();
+                var detailedResult = analysis;
+                Console.WriteLine($"[PLAGIARISM-BG] Similarity analysis completed in {sw.ElapsedMilliseconds}ms. Final overall score: {detailedResult.OverallScore}");
                 
                 // 2. Phát hiện AI
+                Console.WriteLine("[PLAGIARISM-BG] Step 3: Running AI detection...");
+                sw.Restart();
                 var aiResult = await _aiDetectionService.DetectAiAsync(check.SourceDocument.Content);
+                sw.Stop();
+                Console.WriteLine($"[PLAGIARISM-BG] AI detection completed in {sw.ElapsedMilliseconds}ms. AI Probability: {aiResult.AiProbability}");
 
                 // 3. Lưu các phần trùng khớp
+                Console.WriteLine("[PLAGIARISM-BG] Step 4: Saving matches...");
                 var matches = new List<PlagiarismMatch>();
-                foreach (var seg in detailedResult.Segments.Where(s => s.Score > 20 && !string.IsNullOrEmpty(s.Source)))
+                // Chỉ lưu những đoạn trùng khớp thực sự đáng kể (> 40%)
+                foreach (var seg in detailedResult.Segments.Where(s => s.Score > 40 && s.SourceId.HasValue))
                 {
-                    var matchedDoc = compareDocs.FirstOrDefault(d => d.Title == seg.Source);
-                    if (matchedDoc != null)
+                    matches.Add(new PlagiarismMatch
                     {
-                        matches.Add(new PlagiarismMatch
-                        {
-                            PlagiarismCheckId = check.Id,
-                            MatchedDocumentId = matchedDoc.Id,
-                            MatchedText = seg.MatchedText ?? seg.Text,
-                            StartPosition = seg.StartPosition,
-                            EndPosition = seg.EndPosition,
-                            SimilarityScore = (decimal)seg.Score
-                        });
-                    }
+                        PlagiarismCheckId = check.Id,
+                        MatchedDocumentId = seg.SourceId.Value,
+                        MatchedText = seg.MatchedText ?? seg.Text,
+                        StartPosition = seg.StartPosition,
+                        EndPosition = seg.EndPosition,
+                        SimilarityScore = (decimal)seg.Score
+                    });
                 }
+
+                Console.WriteLine($"[PLAGIARISM-BG] Found {matches.Count} matches above threshold.");
 
                 if (matches.Any())
                 {
@@ -145,13 +207,28 @@ namespace BAU_Plagiarism_System.Core.Services
                 check.AiDetectionJson = JsonSerializer.Serialize(aiResult);
                 check.Status = "Completed";
 
+                Console.WriteLine("[PLAGIARISM-BG] Step 5: Saving to DB...");
                 await _context.SaveChangesAsync();
+                Console.WriteLine($"[PLAGIARISM-BG] ========== COMPLETED CheckId: {checkId} ==========");
+            }
+            catch (OutOfMemoryException oomEx)
+            {
+                Console.WriteLine($"[PLAGIARISM-BG] OUT OF MEMORY for check {checkId}: {oomEx.Message}");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                check.Status = "Failed";
+                check.Notes = $"Lỗi: Hết bộ nhớ khi xử lý tài liệu. Tài liệu quá lớn hoặc có quá nhiều dữ liệu so sánh.";
+                try { await _context.SaveChangesAsync(); } catch { }
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[PLAGIARISM-BG] ERROR for check {checkId}: {ex.GetType().Name} - {ex.Message}");
+                Console.WriteLine($"[PLAGIARISM-BG] StackTrace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"[PLAGIARISM-BG] Inner: {ex.InnerException.Message}");
                 check.Status = "Failed";
                 check.Notes = $"Lỗi xử lý ngầm: {ex.Message}";
-                await _context.SaveChangesAsync();
+                try { await _context.SaveChangesAsync(); } catch { }
             }
         }
 
@@ -160,9 +237,9 @@ namespace BAU_Plagiarism_System.Core.Services
         /// </summary>
         public async Task<List<PlagiarismCheckDto>> GetPlagiarismHistoryAsync(int? userId = null, int? documentId = null, int? limit = null)
         {
+            // SỬ DỤNG SELECT PROJECTION thay vì Include để KHÔNG tải cột Content nặng
             var query = _context.PlagiarismChecks
-                .Include(p => p.SourceDocument)
-                .Include(p => p.User)
+                .AsNoTracking()
                 .AsQueryable();
 
             if (userId.HasValue)
@@ -176,22 +253,20 @@ namespace BAU_Plagiarism_System.Core.Services
             if (limit.HasValue)
                 query = query.Take(limit.Value);
 
-            var checks = await query.ToListAsync();
-
-            return checks.Select(p => new PlagiarismCheckDto
+            return await query.Select(p => new PlagiarismCheckDto
             {
                 Id = p.Id,
                 SourceDocumentId = p.SourceDocumentId,
-                SourceDocumentTitle = p.SourceDocument.Title,
+                SourceDocumentTitle = p.SourceDocument.Title, 
                 UserId = p.UserId,
                 UserName = p.User.FullName,
                 CheckDate = p.CheckDate,
                 OverallSimilarityPercentage = p.OverallSimilarityPercentage,
                 Status = p.Status,
                 TotalMatchedDocuments = p.TotalMatchedDocuments,
-                Notes = p.Notes,
-                Matches = new List<PlagiarismMatchDto>() // Không lấy các phần trùng khớp cho giao diện danh sách
-            }).ToList();
+                Notes = p.Notes != null && p.Notes.Length > 200 ? p.Notes.Substring(0, 200) + "..." : p.Notes,
+                Matches = new List<PlagiarismMatchDto>()
+            }).ToListAsync();
         }
 
         /// <summary>
@@ -199,7 +274,9 @@ namespace BAU_Plagiarism_System.Core.Services
         /// </summary>
         public async Task<PlagiarismCheckDto?> GetCheckDetailAsync(int checkId)
         {
+            // Tải thông tin cơ bản trước
             var check = await _context.PlagiarismChecks
+                .AsNoTracking()
                 .Include(p => p.SourceDocument)
                 .Include(p => p.User)
                 .Include(p => p.Matches)
@@ -208,10 +285,10 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (check == null) return null;
 
-            // Tái cấu trúc phân tích chi tiết bằng cách sử dụng các phần trùng khớp đã lưu để làm nổi bật trên giao diện
+            // Đảm bảo không tải toàn bộ database khi lấy chi tiết
             var matchedDocs = check.Matches
-                .Select(m => m.MatchedDocument)
-                .Where(d => d != null)
+                .Where(m => m.MatchedDocument != null)
+                .Select(m => m.MatchedDocument!)
                 .DistinctBy(d => d.Id)
                 .ToList();
 
@@ -257,7 +334,10 @@ namespace BAU_Plagiarism_System.Core.Services
                     MatchedText = m.MatchedText,
                     StartPosition = m.StartPosition,
                     EndPosition = m.EndPosition,
-                    SimilarityScore = m.SimilarityScore
+                    SimilarityScore = m.SimilarityScore,
+                    FullContent = m.MatchedDocument.Content, // Gửi toàn bộ nội dung tài liệu để so sánh
+                    Author = m.MatchedDocument.User?.Username,
+                    AuthorName = m.MatchedDocument.User?.FullName
                 }).ToList()
             };
         }
@@ -335,29 +415,27 @@ namespace BAU_Plagiarism_System.Core.Services
         /// </summary>
         public async Task<List<PlagiarismCheckDto>> GetHighRiskChecksAsync(decimal threshold = 50.0m, int limit = 10)
         {
-            var checks = await _context.PlagiarismChecks
-                .Include(p => p.SourceDocument)
-                .Include(p => p.User)
+            // SỬ DỤNG SELECT PROJECTION thay vì Include để KHÔNG tải cột Content nặng
+            return await _context.PlagiarismChecks
+                .AsNoTracking()
                 .Where(p => p.Status == "Completed" && p.OverallSimilarityPercentage >= threshold)
                 .OrderByDescending(p => p.OverallSimilarityPercentage)
                 .ThenByDescending(p => p.CheckDate)
                 .Take(limit)
-                .ToListAsync();
-
-            return checks.Select(p => new PlagiarismCheckDto
-            {
-                Id = p.Id,
-                SourceDocumentId = p.SourceDocumentId,
-                SourceDocumentTitle = p.SourceDocument.Title,
-                UserId = p.UserId,
-                UserName = p.User.FullName,
-                CheckDate = p.CheckDate,
-                OverallSimilarityPercentage = p.OverallSimilarityPercentage,
-                Status = p.Status,
-                TotalMatchedDocuments = p.TotalMatchedDocuments,
-                Notes = p.Notes,
-                Matches = new List<PlagiarismMatchDto>()
-            }).ToList();
+                .Select(p => new PlagiarismCheckDto
+                {
+                    Id = p.Id,
+                    SourceDocumentId = p.SourceDocumentId,
+                    SourceDocumentTitle = p.SourceDocument.Title, // Chỉ lấy Title, KHÔNG lấy Content
+                    UserId = p.UserId,
+                    UserName = p.User.FullName,
+                    CheckDate = p.CheckDate,
+                    OverallSimilarityPercentage = p.OverallSimilarityPercentage,
+                    Status = p.Status,
+                    TotalMatchedDocuments = p.TotalMatchedDocuments,
+                    Notes = p.Notes,
+                    Matches = new List<PlagiarismMatchDto>()
+                }).ToListAsync();
         }
 
 

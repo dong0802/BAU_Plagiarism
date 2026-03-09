@@ -4,6 +4,25 @@ using System.Linq;
 
 namespace BAU_Plagiarism_System.Core.Services
 {
+    public class HighlightedSegment
+    {
+        public string Text { get; set; } = "";
+        public string? MatchedText { get; set; }
+        public int StartPosition { get; set; }
+        public int EndPosition { get; set; }
+        public double Score { get; set; }
+        public string? Source { get; set; }
+        public int? SourceId { get; set; } // ID of the matching document
+        public bool IsExcluded { get; set; }
+        public string? ExclusionReason { get; set; }
+    }
+
+    public class PlagiarismAnalysis
+    {
+        public double OverallScore { get; set; }
+        public List<HighlightedSegment> Segments { get; set; } = new();
+    }
+
     public class SimilarityChecker
     {
         private readonly TextProcessor _processor;
@@ -21,126 +40,157 @@ namespace BAU_Plagiarism_System.Core.Services
             if (!set1.Any() || !set2.Any()) return 0;
 
             var intersection = set1.Intersect(set2).Count();
-            var union = set1.Union(set2).Count();
+            var union = set1.Count + set2.Count - intersection;
 
             return (double)intersection / union * 100;
         }
 
-        /// <summary>
-        /// Tính toán độ tương đồng giữa hai văn bản (trả về giá trị thập phân 0-1)
-        /// Được sử dụng bởi PlagiarismService
-        /// </summary>
         public decimal CalculateSimilarity(string text1, string text2)
         {
             var similarity = CalculateJaccardSimilarity(text1, text2, 3);
-            return (decimal)(similarity / 100.0); // Chuyển đổi sang phạm vi 0-1
+            return (decimal)(similarity / 100.0);
         }
+
+        /// <summary>
+        /// Giới hạn kích thước nội dung so sánh để tránh tràn bộ nhớ
+        /// </summary>
+        private const int MAX_CONTENT_LENGTH = 50000; // 50K ký tự tối đa mỗi tài liệu
 
         public PlagiarismAnalysis AnalyzeDetailed(string newText, List<BAU_Plagiarism_System.Data.Models.Document> database)
         {
-            // 1. Làm sạch tài liệu (Loại bỏ danh mục tham khảo giống như Turnitin)
+            if (string.IsNullOrWhiteSpace(newText))
+                return new PlagiarismAnalysis();
+
             string cleanedNewText = _processor.CleanDocument(newText);
-            var segments = _processor.SplitIntoSmartSegments(cleanedNewText);
+            var sourceSegments = _processor.SplitIntoSmartSegments(cleanedNewText);
             
-            var analysis = new PlagiarismAnalysis();
-            
-            // Chuẩn bị các tài liệu trong cơ sở dữ liệu (Làm sạch và tính toán trước NGrams)
-            var cleanDb = database.Select(d => {
-                var cleanContent = _processor.NormalizeText(_processor.CleanDocument(d.Content));
-                return new {
-                    Doc = d,
-                    CleanContent = cleanContent,
-                    NGrams = _processor.GenerateNGrams(cleanContent, 2) // Tính toán trước NGrams cho toàn bộ tài liệu
-                };
-            }).ToList();
+            var analysis = new PlagiarismAnalysis 
+            { 
+                Segments = sourceSegments.Select(s => new HighlightedSegment 
+                { 
+                    Text = s.RawText,
+                    IsExcluded = s.IsExcluded,
+                    ExclusionReason = s.ExclusionReason
+                }).ToList() 
+            };
 
-            int matchedWords = 0;
-            int totalWords = 0;
+            CompareAgainstBatch(analysis, database);
 
-            foreach (var seg in segments)
+            // Re-calculate overall score after one batch (though usually called for multiple batches)
+            CalculateOverallScore(analysis);
+
+            return analysis;
+        }
+
+        public void CompareAgainstBatch(PlagiarismAnalysis analysis, List<BAU_Plagiarism_System.Data.Models.Document> database)
+        {
+            if (database == null || !database.Any()) return;
+
+            // 1. Chuẩn bị dữ liệu phẳng (Flat Data) - Sử dụng HashSet<int> để cực kỳ tiết kiệm bộ nhớ
+            var cleanDb = database
+                .Where(d => !string.IsNullOrEmpty(d.Content))
+                .Select(d => {
+                    var content = d.Content.Length > MAX_CONTENT_LENGTH 
+                        ? d.Content.Substring(0, MAX_CONTENT_LENGTH) 
+                        : d.Content;
+                    var cleanContent = _processor.NormalizeText(_processor.CleanDocument(content));
+                    var nGrams = _processor.GenerateHashedNGrams(cleanContent, 4);
+                    return new {
+                        Id = d.Id,
+                        Title = d.Title,
+                        CleanContent = cleanContent,
+                        NGrams = nGrams
+                    };
+                }).ToList();
+
+            // 2. Chuẩn bị N-grams cho các segment nguồn (Sử dụng HashSet<int>)
+            var preparedSourceSegments = new List<(HighlightedSegment info, HashSet<int> grams, string cleanText)>();
+            foreach (var seg in analysis.Segments)
             {
-                if (seg.IsNoise || seg.IsExcluded)
-                {
-                    analysis.Segments.Add(new HighlightedSegment { 
-                        Text = seg.RawText, 
-                        Score = 0, 
-                        IsExcluded = seg.IsExcluded, 
-                        ExclusionReason = seg.ExclusionReason 
-                    });
-                    continue;
-                }
+                if (seg.IsExcluded || string.IsNullOrWhiteSpace(seg.Text)) continue;
+                
+                var cleanText = _processor.NormalizeText(seg.Text);
+                var segmentNGrams = _processor.GenerateHashedNGrams(cleanText, 4);
+                preparedSourceSegments.Add((seg, segmentNGrams, cleanText));
+            }
 
-                var segmentCleanText = seg.CleanText;
-                var segmentTokens = _processor.Tokenize(segmentCleanText);
-                totalWords += segmentTokens.Count;
-
-                var segmentNGrams = _processor.GenerateNGrams(segmentCleanText, 2);
-                var segmentAnalysis = new HighlightedSegment { Text = seg.RawText };
-                double bestMatchScore = 0;
-                string? bestSource = null;
+            // 3. So sánh hiệu năng cao
+            foreach (var source in preparedSourceSegments)
+            {
+                double bestScore = source.info.Score;
+                string? bestSource = source.info.Source;
+                int? bestSourceId = source.info.SourceId;
+                string? bestMatchedText = source.info.MatchedText;
 
                 foreach (var dbDoc in cleanDb)
                 {
-                    // Đường dẫn nhanh: Kiểm tra xem phân đoạn có được chứa chính xác hay không (Không phân biệt hoa thường do chuẩn hóa)
-                    if (segmentTokens.Count >= 5 && dbDoc.CleanContent.Contains(segmentCleanText))
+                    // Case 1: Exact match (Sử dụng bản đã chuẩn hóa để bỏ qua dấu và ký tự đặc biệt)
+                    if (source.cleanText.Length > 20 && dbDoc.CleanContent.Contains(source.cleanText))
                     {
-                        bestMatchScore = 100;
-                        bestSource = dbDoc.Doc.Title;
-                        segmentAnalysis.MatchedText = segmentCleanText;
-                        break; // Đã tìm thấy khớp 100%, có thể dừng cho tài liệu này
+                        if (100 > bestScore)
+                        {
+                            bestScore = 100;
+                            bestSource = dbDoc.Title;
+                            bestSourceId = dbDoc.Id;
+                            bestMatchedText = source.info.Text;
+                        }
+                        continue;
                     }
 
-                    // Nếu không, tính toán độ tương đồng Jaccard bằng cách sử dụng NGrams của tài liệu đã tính toán trước
-                    if (segmentNGrams.Any() && dbDoc.NGrams.Any())
+                    // Case 2: Fuzzy match using Containment similarity (Overlap Coefficient)
+                    // Jaccard similarity (intersection/union) không phù hợp khi so sánh một đoạn văn ngắn với một tài liệu lớn
+                    if (source.grams.Count > 0 && dbDoc.NGrams.Count > 0)
                     {
-                        var intersection = segmentNGrams.Intersect(dbDoc.NGrams).Count();
-                        var union = segmentNGrams.Count + dbDoc.NGrams.Count - intersection;
-                        double score = (double)intersection / union * 100;
-
-                        if (score > bestMatchScore)
+                        // Đếm số lượng N-grams trùng lặp
+                        int intersection = 0;
+                        foreach (var gram in source.grams)
                         {
-                            bestMatchScore = score;
-                            bestSource = dbDoc.Doc.Title;
-                            segmentAnalysis.MatchedText = segmentCleanText; // Đơn giản hóa
+                            if (dbDoc.NGrams.Contains(gram)) intersection++;
+                        }
+
+                        // Score = (số lượng trùng lặp / tổng số n-grams của đoạn nguồn) * 100
+                        double score = (double)intersection / source.grams.Count * 100;
+
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            bestSource = dbDoc.Title;
+                            bestSourceId = dbDoc.Id;
+                            bestMatchedText = source.info.Text;
                         }
                     }
                 }
 
-                segmentAnalysis.Score = Math.Round(bestMatchScore, 2);
-                segmentAnalysis.Source = bestSource;
-                segmentAnalysis.StartPosition = 0; 
-                segmentAnalysis.EndPosition = seg.RawText.Length;
-               
-                if (bestMatchScore > 20) 
-                {
-                    matchedWords += segmentTokens.Count;
-                }
+                source.info.Score = Math.Round(bestScore, 2);
+                source.info.Source = bestSource;
+                source.info.SourceId = bestSourceId;
+                source.info.MatchedText = bestMatchedText;
+            }
+            
+            // Dọn dẹp bộ nhớ ngay lập tức
+            cleanDb.Clear();
+            preparedSourceSegments.Clear();
+        }
 
-                analysis.Segments.Add(segmentAnalysis);
+        public void CalculateOverallScore(PlagiarismAnalysis analysis)
+        {
+            int totalWords = 0;
+            int matchedWords = 0;
+
+            foreach (var seg in analysis.Segments)
+            {
+                if (seg.IsExcluded || string.IsNullOrWhiteSpace(seg.Text)) continue;
+
+                var words = seg.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+                totalWords += words;
+
+                if (seg.Score > 40)
+                {
+                    matchedWords += words;
+                }
             }
 
-            // Tính toán tổng số điểm (Số từ khớp / Tổng số từ)
             analysis.OverallScore = totalWords > 0 ? Math.Round((double)matchedWords / totalWords * 100, 2) : 0;
-            
-            return analysis;
         }
-    }
-
-    public class PlagiarismAnalysis
-    {
-        public double OverallScore { get; set; }
-        public List<HighlightedSegment> Segments { get; set; } = new();
-    }
-
-    public class HighlightedSegment
-    {
-        public string Text { get; set; } = "";
-        public string? MatchedText { get; set; }
-        public int StartPosition { get; set; }
-        public int EndPosition { get; set; }
-        public double Score { get; set; }
-        public string? Source { get; set; }
-        public bool IsExcluded { get; set; }
-        public string? ExclusionReason { get; set; }
     }
 }
