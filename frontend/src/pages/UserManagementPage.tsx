@@ -212,10 +212,17 @@ const UserManagementPage: React.FC = () => {
     return (
         <div className="animate-fade-in">
             <Card className="glass-card" bordered={false}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: window.innerWidth < 768 ? 'column' : 'row',
+                    justifyContent: 'space-between',
+                    alignItems: window.innerWidth < 768 ? 'flex-start' : 'center',
+                    marginBottom: 24,
+                    gap: 16
+                }}>
                     <div>
-                        <Title level={3} style={{ margin: 0 }}>Quản lý người dùng</Title>
-                        <Typography.Text type="secondary">Quản trị viên có thể thêm, sửa, xóa và phân quyền người dùng</Typography.Text>
+                        <Title level={3} style={{ margin: 0, fontSize: window.innerWidth < 768 ? 20 : 24 }}>Quản lý người dùng</Title>
+                        <Typography.Text type="secondary" style={{ fontSize: 13 }}>Thêm, sửa, xóa và phân quyền người dùng</Typography.Text>
                     </div>
                     <Button
                         type="primary"
@@ -223,6 +230,7 @@ const UserManagementPage: React.FC = () => {
                         size="large"
                         onClick={() => showModal()}
                         className="gradient-btn"
+                        style={{ width: window.innerWidth < 768 ? '100%' : 'auto' }}
                     >
                         Thêm người dùng
                     </Button>
@@ -230,10 +238,11 @@ const UserManagementPage: React.FC = () => {
 
                 <div style={{ marginBottom: 16 }}>
                     <Input
-                        placeholder="Tìm kiếm theo tên, tài khoản hoặc khoa..."
+                        placeholder="Tìm kiếm..."
                         prefix={<SearchOutlined />}
                         onChange={e => setSearchText(e.target.value)}
-                        style={{ width: 350 }}
+                        style={{ width: window.innerWidth < 768 ? '100%' : 350 }}
+                        allowClear
                     />
                 </div>
 
@@ -242,7 +251,13 @@ const UserManagementPage: React.FC = () => {
                     dataSource={filteredUsers}
                     loading={loading}
                     rowKey="id"
-                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: 1000 }}
+                    className="premium-table responsive-table"
+                    pagination={{
+                        pageSize: 10,
+                        showSizeChanger: window.innerWidth >= 768,
+                        size: window.innerWidth < 768 ? 'small' : 'default'
+                    }}
                 />
             </Card>
 
@@ -251,14 +266,19 @@ const UserManagementPage: React.FC = () => {
                 open={isModalVisible}
                 onCancel={handleCancel}
                 footer={null}
-                width={600}
+                width={window.innerWidth < 768 ? '95%' : 600}
+                centered
             >
                 <Form
                     form={form}
                     layout="vertical"
                     onFinish={onFinish}
                 >
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr',
+                        gap: '16px'
+                    }}>
                         <Form.Item
                             name="username"
                             label="Tài khoản"
@@ -381,7 +401,8 @@ const UserManagementPage: React.FC = () => {
                 open={isResetPwdVisible}
                 onCancel={() => setIsResetPwdVisible(false)}
                 footer={null}
-                width={400}
+                width={window.innerWidth < 768 ? '90%' : 400}
+                centered
             >
                 <Form
                     form={resetForm}

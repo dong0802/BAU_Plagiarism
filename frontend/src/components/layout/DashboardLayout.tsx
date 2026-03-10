@@ -44,11 +44,18 @@ const DashboardLayout: React.FC = () => {
                 trigger={null}
                 collapsible
                 collapsed={collapsed}
+                breakpoint="lg"
+                collapsedWidth={window.innerWidth < 992 ? 0 : 80}
+                onBreakpoint={(broken) => {
+                    if (broken) setCollapsed(true);
+                }}
                 theme="light"
                 width={260}
                 style={{
                     boxShadow: '4px 0 10px rgba(0,0,0,0.02)',
-                    zIndex: 1001
+                    zIndex: 1001,
+                    position: window.innerWidth < 992 ? 'fixed' : 'relative',
+                    height: '100vh'
                 }}
             >
                 <div
@@ -115,12 +122,12 @@ const DashboardLayout: React.FC = () => {
                         style={{ fontSize: '16px', width: 40, height: 40 }}
                     />
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                        <Button type="text" icon={<BellOutlined />} style={{ fontSize: 18 }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <Button type="text" icon={<BellOutlined />} style={{ fontSize: 18 }} className="hide-mobile" />
                         <Dropdown menu={{ items: userMenuItems as any }} placement="bottomRight" arrow>
                             <Space style={{ cursor: 'pointer' }}>
                                 <Avatar style={{ backgroundColor: '#1890ff' }} icon={<UserOutlined />} />
-                                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                                <div className="hide-mobile" style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
                                     <Text strong>{user?.fullName}</Text>
                                     <Text type="secondary" style={{ fontSize: 12 }}>{user?.role}</Text>
                                 </div>
@@ -128,10 +135,28 @@ const DashboardLayout: React.FC = () => {
                         </Dropdown>
                     </div>
                 </Header>
-                <Content style={{ margin: '24px', minHeight: 280, position: 'relative' }}>
+                <Content style={{
+                    margin: window.innerWidth < 768 ? '16px 12px' : '24px',
+                    minHeight: 280,
+                    position: 'relative'
+                }}>
                     <Outlet />
                 </Content>
             </Layout>
+            {window.innerWidth < 992 && !collapsed && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0,0,0,0.3)',
+                        zIndex: 1000
+                    }}
+                    onClick={() => setCollapsed(true)}
+                />
+            )}
         </Layout>
     );
 };

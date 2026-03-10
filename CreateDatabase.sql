@@ -43,7 +43,7 @@ CREATE TABLE Departments (
     Id INT PRIMARY KEY IDENTITY(1,1),
     Code NVARCHAR(100) NOT NULL UNIQUE,
     Name NVARCHAR(255) NOT NULL,
-    Description NVARCHAR(500),
+    Description NVARCHAR(500),  
     FacultyId INT NOT NULL,
     IsActive BIT NOT NULL DEFAULT 1,
     CreatedDate DATETIME2 NOT NULL DEFAULT GETDATE(),
@@ -175,20 +175,6 @@ CREATE TABLE PlagiarismMatches (
 CREATE INDEX IX_PlagiarismMatches_CheckId ON PlagiarismMatches(PlagiarismCheckId);
 CREATE INDEX IX_PlagiarismMatches_DocumentId ON PlagiarismMatches(MatchedDocumentId);
 
--- =============================================
--- Legacy Table (for backward compatibility)
--- =============================================
-CREATE TABLE Documents_Legacy (
-    Id INT PRIMARY KEY IDENTITY(1,1),
-    Title NVARCHAR(255) NOT NULL,
-    Author NVARCHAR(255) NOT NULL,
-    Content NVARCHAR(MAX) NOT NULL,
-    UploadDate DATETIME2 NOT NULL DEFAULT GETDATE(),
-    StudentId NVARCHAR(50),
-    Department NVARCHAR(255) DEFAULT N'Banking Academy'
-);
-
-CREATE INDEX IX_Documents_Legacy_StudentId ON Documents_Legacy(StudentId);
 
 GO
 

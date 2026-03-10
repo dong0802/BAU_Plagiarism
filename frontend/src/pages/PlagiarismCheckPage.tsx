@@ -258,8 +258,9 @@ const PlagiarismCheckPage: React.FC = () => {
                 footer={[
                     <Button key="close" onClick={() => setIsAiModalVisible(false)}>Đóng</Button>
                 ]}
-                width={850}
+                width={window.innerWidth < 768 ? '95%' : 850}
                 className="ai-details-modal"
+                style={{ top: 20 }}
             >
                 <div style={{ marginBottom: 25 }}>
                     <Row gutter={20} style={{ marginBottom: 20 }}>
@@ -867,19 +868,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {user?.role === 'Student' && (
-                                <div style={{ marginTop: 24, textAlign: 'center' }}>
-                                    <Card size="small" style={{ display: 'inline-block', background: (user.remainingChecksToday || 0) > 0 ? '#f6ffed' : '#fff2e8', border: 'none' }}>
-                                        <Space>
-                                            <ClockCircleOutlined />
-                                            <Text>Lượt kiểm tra hôm nay: </Text>
-                                            <Text strong style={{ color: (user.remainingChecksToday || 0) > 0 ? '#52c41a' : '#ff4d4f' }}>
-                                                {user.remainingChecksToday ?? 0}/{user.dailyCheckLimit ?? 5}
-                                            </Text>
-                                        </Space>
-                                    </Card>
-                                </div>
-                            )}
+                            {/* Đã bỏ giới hạn lượt kiểm tra cho sinh viên */}
 
                             {((inputType === 'file' && pendingFile) || (inputType === 'text' && pastedText.trim().length > 100)) && (
                                 <div style={{ textAlign: 'center', marginTop: 30 }}>
@@ -890,9 +879,8 @@ const PlagiarismCheckPage: React.FC = () => {
                                         className="gradient-btn"
                                         onClick={startAnalysis}
                                         style={{ height: 50, padding: '0 40px', fontSize: 18 }}
-                                        disabled={user?.role === 'Student' && (user.remainingChecksToday === 0)}
                                     >
-                                        {user?.role === 'Student' && user.remainingChecksToday === 0 ? "Đã hết lượt kiểm tra hôm nay" : "Bắt đầu kiểm tra đạo văn"}
+                                        Bắt đầu kiểm tra đạo văn
                                     </Button>
                                 </div>
                             )}
@@ -1125,31 +1113,32 @@ const PlagiarismCheckPage: React.FC = () => {
                                                 border: `1px solid ${result.aiProbability > 70 ? '#ffa39e' : (result.aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
                                             }}
                                         >
-                                            <Row align="middle" gutter={24}>
-                                                <Col>
+                                            <Row align="middle" gutter={[16, 16]}>
+                                                <Col xs={24} sm={6}>
                                                     <Statistic
                                                         title={<Space><WarningOutlined /> Xác suất AI</Space>}
                                                         value={result.aiProbability}
                                                         suffix="%"
                                                         valueStyle={{
                                                             color: result.aiProbability > 70 ? '#cf1322' : (result.aiProbability > 40 ? '#d48806' : '#389e0d'),
-                                                            fontWeight: 'bold'
+                                                            fontWeight: 'bold',
+                                                            fontSize: window.innerWidth < 768 ? 20 : 24
                                                         }}
                                                     />
                                                 </Col>
-                                                <Col>
+                                                <Col xs={0} sm={1}>
                                                     <Divider type="vertical" style={{ height: 40 }} />
                                                 </Col>
-                                                <Col flex="auto">
+                                                <Col xs={24} sm={12}>
                                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                                         <Text strong style={{ fontSize: 16 }}>
                                                             Mức độ nghi ngờ: <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>{result.aiDetectionLevel}</Tag>
                                                         </Text>
-                                                        <Text type="secondary">{result.aiAnalysis?.summary || "Đang phân tích chi tiết cấu trúc câu..."}</Text>
+                                                        <Text type="secondary" style={{ fontSize: 13 }}>{result.aiAnalysis?.summary || "Đang phân tích chi tiết..."}</Text>
                                                     </div>
                                                 </Col>
-                                                <Col>
-                                                    <Button type="link" onClick={() => setIsAiModalVisible(true)}>Xem chi tiết AI</Button>
+                                                <Col xs={24} sm={5}>
+                                                    <Button type="primary" ghost block onClick={() => setIsAiModalVisible(true)}>Chi tiết AI</Button>
                                                 </Col>
                                             </Row>
                                         </Card>

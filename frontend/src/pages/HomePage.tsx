@@ -207,32 +207,7 @@ const HomePage: React.FC = () => {
                 </Col>
             </Row>
 
-            {/* Daily Check Limit Info for Students */}
-            {user?.role === 'Student' && user?.remainingChecksToday !== undefined && (
-                <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
-                    <Col span={24}>
-                        <Card className="glass-card" bordered={false} style={{ background: user.remainingChecksToday <= 1 ? '#fff2e8' : '#f6ffed' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div>
-                                    <Text strong style={{ fontSize: 16 }}>Số lượt kiểm tra hôm nay</Text>
-                                    <div style={{ marginTop: 8 }}>
-                                        <Text style={{ fontSize: 24, fontWeight: 'bold', color: user.remainingChecksToday <= 1 ? '#fa8c16' : '#52c41a' }}>
-                                            {user.remainingChecksToday}/{user.dailyCheckLimit}
-                                        </Text>
-                                        <Text type="secondary" style={{ marginLeft: 8 }}>lượt còn lại</Text>
-                                    </div>
-                                </div>
-                                {user.remainingChecksToday === 0 && (
-                                    <Tag color="error" style={{ fontSize: 14, padding: '4px 12px' }}>Đã hết lượt kiểm tra hôm nay</Tag>
-                                )}
-                                {user.remainingChecksToday === 1 && (
-                                    <Tag color="warning" style={{ fontSize: 14, padding: '4px 12px' }}>Còn 1 lượt cuối cùng!</Tag>
-                                )}
-                            </div>
-                        </Card>
-                    </Col>
-                </Row>
-            )}
+            {/* Đã bỏ giới hạn lượt kiểm tra cho sinh viên */}
 
             {/* High Risk Checks Warning List (For Admins) */}
             {user?.role !== 'Student' && highRiskChecks.length > 0 && (

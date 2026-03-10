@@ -9,8 +9,6 @@ namespace BAU_Plagiarism_System.Data
         {
         }
 
-        // Legacy table (for backward compatibility)
-        public DbSet<SavedDocument> SavedDocuments { get; set; }
 
         // New Domain Models
         public DbSet<Faculty> Faculties { get; set; }
@@ -23,12 +21,6 @@ namespace BAU_Plagiarism_System.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // SavedDocument (Legacy)
-            modelBuilder.Entity<SavedDocument>(entity =>
-            {
-                entity.ToTable("Documents_Legacy");
-                entity.HasIndex(e => e.StudentId);
-            });
 
             // Faculty
             modelBuilder.Entity<Faculty>(entity =>

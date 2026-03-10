@@ -55,11 +55,13 @@ namespace BAU_Plagiarism_System.Core.Services
                 user.LastCheckResetDate = DateTime.Now;
             }
 
-            // Kiểm tra nếu sinh viên còn lượt kiểm tra
+            // Tạm thời bỏ giới hạn cho sinh viên theo yêu cầu
+            /*
             if (user.Role == "Student" && user.ChecksUsedToday >= user.DailyCheckLimit)
             {
                 throw new Exception($"Bạn đã hết lượt kiểm tra trong ngày hôm nay (Tối đa {user.DailyCheckLimit} lượt/ngày).");
             }
+            */
 
             // Tăng số lượt kiểm tra
             user.ChecksUsedToday++;

@@ -72,8 +72,9 @@ const LoginPage: React.FC = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8 }}
+                style={{ width: '100%', maxWidth: 400, padding: '0 20px' }}
             >
-                <Card className="glass-card" style={{ width: 400, border: 'none' }}>
+                <Card className="glass-card" style={{ width: '100%', border: 'none' }}>
                     <div style={{ textAlign: 'center', marginBottom: 30 }}>
                         <div style={{
                             width: 60, height: 60, background: '#003a8c', borderRadius: 12,
