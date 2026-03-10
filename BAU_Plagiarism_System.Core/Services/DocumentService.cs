@@ -30,8 +30,8 @@ namespace BAU_Plagiarism_System.Core.Services
             var query = _context.Documents
                 .Include(d => d.User)
                 .Include(d => d.Subject)
-                    .ThenInclude(s => s.Department)
-                        .ThenInclude(dep => dep.Faculty)
+                    .ThenInclude(s => s!.Department)
+                        .ThenInclude(dep => dep!.Faculty)
                 .Where(d => d.IsActive);
 
             if (userId.HasValue)
@@ -164,7 +164,7 @@ namespace BAU_Plagiarism_System.Core.Services
             Console.WriteLine($"[DocumentService] File saved to disk. Path: {filePath}");
 
             // Trích xuất nội dung văn bản từ tệp
-            string content;
+            string? content;
             try
             {
                 Console.WriteLine($"[DocumentService] Extracting text from {filePath}...");
@@ -186,7 +186,7 @@ namespace BAU_Plagiarism_System.Core.Services
             {
                 Title = dto.Title,
                 DocumentType = dto.DocumentType,
-                Content = content,
+                Content = content ?? string.Empty,
                 OriginalFileName = dto.FileName,
                 FilePath = filePath,
                 FileSize = dto.FileSize,

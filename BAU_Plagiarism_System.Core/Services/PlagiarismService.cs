@@ -55,11 +55,13 @@ namespace BAU_Plagiarism_System.Core.Services
                 user.LastCheckResetDate = DateTime.Now;
             }
 
-            // Kiểm tra nếu sinh viên còn lượt kiểm tra
+            // Tạm thời bỏ giới hạn cho sinh viên theo yêu cầu
+            /*
             if (user.Role == "Student" && user.ChecksUsedToday >= user.DailyCheckLimit)
             {
                 throw new Exception($"Bạn đã hết lượt kiểm tra trong ngày hôm nay (Tối đa {user.DailyCheckLimit} lượt/ngày).");
             }
+            */
 
             // Tăng số lượt kiểm tra
             user.ChecksUsedToday++;
@@ -113,7 +115,7 @@ namespace BAU_Plagiarism_System.Core.Services
             {
                 // TỔNG LỰC TỐI ƯU: Tách văn bản nguồn ra các đoạn (segments) CHỈ 1 LẦN duy nhất
                 Console.WriteLine("[PLAGIARISM-BG] Step 0: Pre-splitting source document...");
-                string cleanedSource = _textProcessor.CleanDocument(check.SourceDocument.Content);
+                string cleanedSource = _textProcessor.CleanDocument(check.SourceDocument!.Content ?? string.Empty);
                 var sourceSegments = _textProcessor.SplitIntoSmartSegments(cleanedSource);
                 Console.WriteLine($"[PLAGIARISM-BG] Source split into {sourceSegments.Count} segments.");
 
@@ -152,17 +154,37 @@ namespace BAU_Plagiarism_System.Core.Services
 
                 // Tính toán điểm tổng kết cuối cùng sau khi đã quét hết các batch
                 int totalWords = 0;
-                int matchedWords = 0;
+                var sourceMatchedWords = new Dictionary<int, int>();
+
                 foreach(var seg in analysis.Segments)
                 {
                     if (seg.IsExcluded || string.IsNullOrWhiteSpace(seg.Text)) continue;
                     
                     var words = seg.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
                     totalWords += words;
-                    // Tăng ngưỡng lên 40% để tránh các trùng lặp vụn vặt do thuật toán N-gram (Cơ chế giống SimilarityChecker)
-                    if (seg.Score > 40) matchedWords += words;
+                    
+                    // Nhóm các trùng lặp theo SourceId
+                    if (seg.Score > 40 && seg.SourceId.HasValue) 
+                    {
+                        if (!sourceMatchedWords.ContainsKey(seg.SourceId.Value))
+                            sourceMatchedWords[seg.SourceId.Value] = 0;
+                        sourceMatchedWords[seg.SourceId.Value] += words;
+                    }
                 }
-                analysis.OverallScore = totalWords > 0 ? Math.Round((double)matchedWords / totalWords * 100, 2) : 0;
+
+                int finalMatchedWords = 0;
+                // Nếu phần trăm đạo văn của một nguồn dưới quy định (1%) thì không cộng vào tổng
+                // Còn quá thì cộng vào
+                foreach(var kvp in sourceMatchedWords)
+                {
+                    double sourcePercent = totalWords > 0 ? ((double)kvp.Value / totalWords) * 100 : 0;
+                    if (sourcePercent >= 1.0) // Ngưỡng quy định = 1%
+                    {
+                        finalMatchedWords += kvp.Value;
+                    }
+                }
+
+                analysis.OverallScore = totalWords > 0 ? Math.Round((double)finalMatchedWords / totalWords * 100, 2) : 0;
 
                 sw.Stop();
                 var detailedResult = analysis;
@@ -171,20 +193,20 @@ namespace BAU_Plagiarism_System.Core.Services
                 // 2. Phát hiện AI
                 Console.WriteLine("[PLAGIARISM-BG] Step 3: Running AI detection...");
                 sw.Restart();
-                var aiResult = await _aiDetectionService.DetectAiAsync(check.SourceDocument.Content);
+                var aiResult = await _aiDetectionService.DetectAiAsync(check.SourceDocument!.Content ?? string.Empty);
                 sw.Stop();
                 Console.WriteLine($"[PLAGIARISM-BG] AI detection completed in {sw.ElapsedMilliseconds}ms. AI Probability: {aiResult.AiProbability}");
 
                 // 3. Lưu các phần trùng khớp
                 Console.WriteLine("[PLAGIARISM-BG] Step 4: Saving matches...");
                 var matches = new List<PlagiarismMatch>();
-                // Chỉ lưu những đoạn trùng khớp thực sự đáng kể (> 40%)
-                foreach (var seg in detailedResult.Segments.Where(s => s.Score > 40 && s.SourceId.HasValue))
+                // Chỉ lưu những đoạn trùng khớp thực sự (score > 0 = tìm thấy chuỗi từ trùng khớp)
+                foreach (var seg in detailedResult.Segments.Where(s => s.Score > 0 && s.SourceId.HasValue))
                 {
                     matches.Add(new PlagiarismMatch
                     {
                         PlagiarismCheckId = check.Id,
-                        MatchedDocumentId = seg.SourceId.Value,
+                        MatchedDocumentId = seg.SourceId!.Value,
                         MatchedText = seg.MatchedText ?? seg.Text,
                         StartPosition = seg.StartPosition,
                         EndPosition = seg.EndPosition,

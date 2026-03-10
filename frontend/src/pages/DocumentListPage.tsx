@@ -281,6 +281,9 @@ const DocumentListPage: React.FC = () => {
         }
     ];
 
+    // Responsive table scroll
+    const tableScroll = window.innerWidth < 992 ? { x: 900 } : undefined;
+
     const filteredDocs = documents.filter(d => {
         const matchSearch = d.title.toLowerCase().includes(searchText.toLowerCase()) ||
             (d.userName && d.userName.toLowerCase().includes(searchText.toLowerCase())) ||
@@ -294,22 +297,32 @@ const DocumentListPage: React.FC = () => {
     });
 
     return (
-        <div className="animate-fade-in" style={{ padding: '0 20px' }}>
+        <div className="animate-fade-in" style={{ padding: window.innerWidth < 768 ? '0' : '0 20px' }}>
             {/* Header Area */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
+            <div style={{
+                display: 'flex',
+                flexDirection: window.innerWidth < 768 ? 'column' : 'row',
+                justifyContent: 'space-between',
+                alignItems: window.innerWidth < 768 ? 'flex-start' : 'flex-end',
+                marginBottom: 32,
+                gap: 16
+            }}>
                 <div>
-                    <Title level={2} style={{ marginBottom: 4 }}>
+                    <Title level={2} style={{ marginBottom: 4, fontSize: window.innerWidth < 768 ? 22 : 28 }}>
                         {isStudent ? 'Kho tài liệu của tôi' : 'Kho tài liệu lưu trữ'}
                     </Title>
                     <Text type="secondary">
-                        {isStudent ? 'Quản lý các tài liệu bạn đã tải lên hệ thống' : 'Quản lý toàn bộ cơ sở dữ liệu tài liệu của HVNH'}
+                        {isStudent ? 'Quản lý các tài liệu của bạn' : 'Quản lý cơ sở dữ liệu tài liệu'}
                     </Text>
                 </div>
-                <Space size="middle">
+                <Space
+                    direction={window.innerWidth < 768 ? 'vertical' : 'horizontal'}
+                    style={{ width: window.innerWidth < 768 ? '100%' : 'auto' }}
+                >
                     <Input
-                        placeholder="Tìm kiếm theo tên, môn, tác giả..."
+                        placeholder="Tìm kiếm..."
                         prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-                        style={{ width: 320, height: 40 }}
+                        style={{ width: window.innerWidth < 768 ? '100%' : 320, height: 40 }}
                         onChange={e => setSearchText(e.target.value)}
                         allowClear
                     />
@@ -319,7 +332,12 @@ const DocumentListPage: React.FC = () => {
                             icon={<UploadOutlined />}
                             size="large"
                             onClick={() => setUploadVisible(true)}
-                            style={{ display: 'flex', alignItems: 'center' }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                width: window.innerWidth < 768 ? '100%' : 'auto',
+                                justifyContent: 'center'
+                            }}
                         >
                             Tải lên tài liệu
                         </Button>
@@ -427,11 +445,12 @@ const DocumentListPage: React.FC = () => {
                             dataSource={filteredDocs}
                             rowKey="id"
                             loading={loading}
-                            className="premium-table"
+                            scroll={tableScroll}
+                            className="premium-table responsive-table"
                             pagination={{
                                 pageSize: 10,
-                                showSizeChanger: true,
-                                showTotal: (total) => `Tổng cộng ${total} tài liệu`,
+                                showSizeChanger: window.innerWidth >= 768,
+                                showTotal: (total) => window.innerWidth >= 768 ? `Tổng cộng ${total} tài liệu` : undefined,
                                 position: ['bottomRight']
                             }}
                             locale={{
@@ -452,7 +471,7 @@ const DocumentListPage: React.FC = () => {
                 }
                 open={uploadVisible}
                 onCancel={() => !uploadingFiles && setUploadVisible(false)}
-                width={600}
+                width={window.innerWidth < 768 ? '95%' : 600}
                 centered
                 footer={[
                     <Button key="cancel" onClick={() => setUploadVisible(false)} disabled={uploadingFiles}>
@@ -538,7 +557,7 @@ const DocumentListPage: React.FC = () => {
                 }
                 open={detailVisible}
                 onCancel={() => setDetailVisible(false)}
-                width={800}
+                width={window.innerWidth < 768 ? '95%' : 800}
                 centered
                 className="premium-modal"
                 footer={[

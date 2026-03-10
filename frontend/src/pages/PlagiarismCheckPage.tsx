@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { Card, Upload, message, Button, Typography, Steps, Row, Col, Progress, List, Tag, Divider, Space, Badge, Statistic, Modal, Input, Radio, Form } from 'antd';
-import { InboxOutlined, FileSearchOutlined, CheckCircleOutlined, InfoCircleOutlined, EyeOutlined, WarningOutlined, ArrowLeftOutlined, ArrowRightOutlined, DownloadOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined, UserOutlined, FileSearchOutlined as FileIcon } from '@ant-design/icons';
+import { Card, Upload, message, Button, Typography, Steps, Row, Col, Progress, List, Tag, Divider, Space, Badge, Statistic, Modal, Input, Radio, Form, Checkbox, InputNumber, Spin } from 'antd';
+import { InboxOutlined, FileSearchOutlined, CheckCircleOutlined, InfoCircleOutlined, EyeOutlined, WarningOutlined, ArrowLeftOutlined, ArrowRightOutlined, DownloadOutlined, FileTextOutlined, HistoryOutlined, ClockCircleOutlined, UserOutlined, CloseOutlined, FilterOutlined, AppstoreOutlined as LayersOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import documentApi from '../api/documentApi';
 import plagiarismApi from '../api/plagiarismApi';
@@ -50,8 +50,150 @@ const PlagiarismCheckPage: React.FC = () => {
     const [pastedText, setPastedText] = useState("");
     const [qualityAnalysis, setQualityAnalysis] = useState<DocumentQualityAnalysis | null>(null);
     const [isQualityModalVisible, setIsQualityModalVisible] = useState(false);
+    
+    // Turnitin-style Sidebar & Filtering states
+    const [sidePanelVisible, setSidePanelVisible] = useState(false);
+    const [sidePanelType, setSidePanelType] = useState<'matches' | 'filters' | 'info' | 'none'>('matches');
+    const [excludeQuotes, setExcludeQuotes] = useState(false);
+    const [excludeBibliography, setExcludeBibliography] = useState(false);
+    const [excludeType, setExcludeType] = useState<'none' | 'words' | 'percent'>('none');
+    const [excludeMinWords, setExcludeMinWords] = useState(1);
+    const [excludeMinPercent, setExcludeMinPercent] = useState(1);
+    const [filteredResult, setFilteredResult] = useState<any>(null);
+
     const location = useLocation();
     const { id } = useParams<{ id: string }>();
+
+    // Apply filters logic
+    // Apply filters logic
+    useEffect(() => {
+        if (!result) {
+            setFilteredResult(null);
+            return;
+        }
+
+        console.log("[SIDEBAR] Applying filters and recalculating score...");
+
+        // Start with a clone of segments
+        let currentSegments = [...result.detailedAnalysis.segments];
+        
+        // 1. Mark segments for exclusion based on UI toggles (Quotes, Bibliography)
+        currentSegments = currentSegments.map(seg => {
+            let isExcluded = false;
+            let reason = '';
+
+            // Handle Bibliography
+            const isBibBackend = seg.exclusionReason === 'Loại trừ Mục lục Tham khảo' || seg.isBibliography;
+            if (excludeBibliography && isBibBackend) {
+                isExcluded = true;
+                reason = 'Loại trừ Mục lục Tham khảo';
+            }
+
+            // Handle Quotes
+            if (excludeQuotes) {
+                const trimmed = (seg.text || "").trim();
+                const isQuote = (trimmed.startsWith('"') && trimmed.endsWith('"')) || 
+                               (trimmed.startsWith('“') && trimmed.endsWith('”')) ||
+                               (trimmed.startsWith('«') && trimmed.endsWith('»')) ||
+                               (trimmed.includes('"') && trimmed.length > 20 && (trimmed.match(/"/g) || []).length >= 2);
+                if (isQuote) {
+                    isExcluded = true;
+                    reason = 'Loại trừ trích dẫn';
+                }
+            }
+
+            // If it was already marked as excluded by backend (other than bib)
+            if (seg.isExcluded && !isBibBackend && !isExcluded) {
+                isExcluded = true;
+                reason = seg.exclusionReason || 'Đã loại trừ';
+            }
+
+            return { ...seg, isExcluded, exclusionReason: reason };
+        });
+
+        // 2. Aggregate matched words BY SOURCE to apply source-level filters
+        const sourceWordCounts: { [key: string]: number } = {};
+        let totalCountableDocWords = 0;
+
+        currentSegments.forEach(seg => {
+            const wordCount = seg.text ? seg.text.trim().split(/\s+/).filter((w: string) => w.length > 0).length : 0;
+            
+            // Standard Turnitin logic: 
+            // - Bibliography is excluded from the total word count of the document IF the toggle is on.
+            // - Quotes are included in the total word count but not the similarity sum if toggle is on.
+            const shouldExcludeFromTotalCount = excludeBibliography && (seg.exclusionReason === 'Loại trừ Mục lục Tham khảo' || seg.isBibliography);
+            
+            if (!shouldExcludeFromTotalCount) {
+                totalCountableDocWords += wordCount;
+            }
+
+            // Only count as a "match" for a source if not excluded AND has actual matching
+            // Turnitin-style: score > 0 means exact word sequences were found
+            if (!seg.isExcluded && seg.source && seg.score > 0) { 
+                sourceWordCounts[seg.source] = (sourceWordCounts[seg.source] || 0) + wordCount;
+            }
+        });
+
+        // Utility to check if segment should be ignored for similarity index
+        function isExcludedSegment(seg: any) {
+            return seg.isExcluded;
+        }
+
+        // 3. Filter currentMatches based on active source-level filters
+        let currentMatches = result.matches.map((m: any) => {
+            const matchedWords = sourceWordCounts[m.source] || 0;
+            const similarity = totalCountableDocWords > 0 ? (matchedWords / totalCountableDocWords * 100) : 0;
+            
+            return {
+                ...m,
+                matchWordCount: matchedWords,
+                similarity: parseFloat(similarity.toFixed(1))
+            };
+        });
+
+        // Apply Source-level removal filters (Exclude small sources)
+        if (excludeType === 'words') {
+            currentMatches = currentMatches.filter((m: any) => m.matchWordCount >= (excludeMinWords || 1));
+        } else if (excludeType === 'percent') {
+            currentMatches = currentMatches.filter((m: any) => m.similarity >= (excludeMinPercent || 1));
+        } else {
+            // Remove matches that contribute 0% due to local segment exclusions
+            currentMatches = currentMatches.filter((m: any) => m.similarity > 0);
+        }
+
+        // 4. Final Re-calculation of Overall Similarity Index
+        const activeSourceTitles = new Set(currentMatches.map((m: any) => m.source));
+        let matchedTotalWords = 0;
+
+        currentSegments.forEach(seg => {
+            // A word is counted in the total sum if:
+            // - It matches an active source (one that wasn't filtered out by size)
+            // - It is not part of an excluded segment (quote, bib)
+            // - It meets the Turnitin-style threshold (score > 0 means exact match found)
+            if (!isExcludedSegment(seg) && seg.source && activeSourceTitles.has(seg.source) && seg.score > 0) {
+                const wordCount = seg.text ? seg.text.trim().split(/\s+/).filter((w: string) => w.length > 0).length : 0;
+                matchedTotalWords += wordCount;
+            }
+        });
+
+        // Tổng % đạo văn = tổng % đóng góp của các nguồn >= 1.0% (giống backend CalculateOverallScore)
+        const finalScore = parseFloat(
+            currentMatches
+                .filter((m: any) => m.similarity >= 1.0)
+                .reduce((sum: number, m: any) => sum + m.similarity, 0)
+                .toFixed(1)
+        );
+
+        // 5. Update UI state with recalculated data
+        setFilteredResult({
+            ...result,
+            score: finalScore,
+            matchedDocs: currentMatches.length,
+            matches: currentMatches,
+            detailedAnalysis: { segments: currentSegments }
+        });
+
+    }, [result, excludeQuotes, excludeBibliography, excludeType, excludeMinWords, excludeMinPercent]);
 
     useEffect(() => {
         fetchHistory();
@@ -126,7 +268,7 @@ const PlagiarismCheckPage: React.FC = () => {
     const pollForResult = async (checkId: number): Promise<any> => {
         setLoadingStatus("Hệ thống đang phân tích sâu (AI & Đạo văn)...");
         let attempts = 0;
-        const maxAttempts = 60; // 90 seconds (60 * 1.5s)
+        const maxAttempts = 120; // 3 phút (120 * 1.5s) để xử lý tài liệu lớn
 
         while (attempts < maxAttempts) {
             const detail = await plagiarismApi.getDetail(checkId);
@@ -134,16 +276,19 @@ const PlagiarismCheckPage: React.FC = () => {
 
             attempts++;
 
-            // Better progress feedback
+
             if (attempts < 20) {
                 setLoadingStatus("Đang quét kho dữ liệu nội bộ...");
-                setProgress(prev => Math.min(93, prev + 0.5));
+                setProgress(prev => Math.min(93, Math.round((prev + 0.5) * 10) / 10));
             } else if (attempts < 40) {
                 setLoadingStatus("Đang phân tích AI và ngữ nghĩa...");
-                setProgress(prev => Math.min(96, prev + 0.2));
-            } else {
+                setProgress(prev => Math.min(96, Math.round((prev + 0.2) * 10) / 10));
+            } else if (attempts < 80) {
                 setLoadingStatus("Đang hoàn thiện kết quả phân tích...");
-                setProgress(prev => Math.min(98, prev + 0.1));
+                setProgress(prev => Math.min(98, Math.round((prev + 0.1) * 10) / 10));
+            } else {
+                setLoadingStatus("Tài liệu lớn, đang xử lý sâu...");
+                setProgress(prev => Math.min(99, Math.round((prev + 0.05) * 100) / 100));
             }
 
             await new Promise(resolve => setTimeout(resolve, 1500));
@@ -159,11 +304,14 @@ const PlagiarismCheckPage: React.FC = () => {
 
         const segments = (detail.detailedAnalysis?.segments || []).map((seg: any, index: number) => {
             const wordCount = seg.text ? seg.text.trim().split(/\s+/).filter((w: string) => w.length > 0).length : 0;
-            totalWordsCount += wordCount;
 
-            // If this segment is part of a match (> 40%), add its word count to that source
-            if (seg.source && seg.score > 40) {
-                sourceWordsMatched[seg.source] = (sourceWordsMatched[seg.source] || 0) + wordCount;
+            if (!seg.isExcluded) {
+                totalWordsCount += wordCount;
+
+                // Turnitin-style: score > 0 means exact word sequences found
+                if (seg.source && seg.score > 0) {
+                    sourceWordsMatched[seg.source] = (sourceWordsMatched[seg.source] || 0) + wordCount;
+                }
             }
 
             return {
@@ -174,7 +322,7 @@ const PlagiarismCheckPage: React.FC = () => {
                 matchedText: seg.matchedText,
                 isExcluded: seg.isExcluded,
                 exclusionReason: seg.exclusionReason,
-                severity: seg.score > 60 ? 'high' : (seg.score > 30 ? 'medium' : 'low') as 'high' | 'medium' | 'low'
+                severity: seg.score > 80 ? 'high' : (seg.score > 50 ? 'medium' : 'low') as 'high' | 'medium' | 'low'
             };
         });
 
@@ -216,7 +364,7 @@ const PlagiarismCheckPage: React.FC = () => {
                     source: docTitle,
                     similarity: docContributionPercent,
                     text: docMatchedText,
-                    allSnippets: docSnippets[docTitle] || [], // Pass all snippets for this doc
+                    allSnippets: docSnippets[docTitle] || [],
                     fullContent: docFullContent,
                     matchedDocumentId: docId, // Map the ID for fallback loading
                     author: docAuthorName,
@@ -225,14 +373,22 @@ const PlagiarismCheckPage: React.FC = () => {
             }
         });
 
-        // Lọc bỏ những nguồn có tỷ lệ trùng khớp quá nhỏ (< 1%) để danh sách gọn gàng
-        consolidatedMatches = consolidatedMatches.filter(m => m.similarity >= 1.0);
-
+        // Lọc bỏ những nguồn có tỷ lệ 0.0% (được làm tròn quá nhỏ) để không bị hiển thị nguồn 0% gây lỗi hiển thị
+        consolidatedMatches = consolidatedMatches.filter(m => m.similarity > 0);
         // Sort by contribution %
         consolidatedMatches.sort((a, b) => b.similarity - a.similarity);
 
+        // Tổng % đạo văn = tổng % đóng góp của các nguồn >= 1.0% (khớp với backend CalculateOverallScore)
+        let exactTotalSum = 0;
+        consolidatedMatches.forEach(m => {
+            if (m.similarity >= 1.0) {
+                exactTotalSum += m.similarity;
+            }
+        });
+        exactTotalSum = parseFloat(exactTotalSum.toFixed(1));
+
         setResult({
-            score: detail.overallSimilarityPercentage,
+            score: exactTotalSum,
             matchedDocs: consolidatedMatches.length,
             detailedAnalysis: { segments },
             matches: consolidatedMatches,
@@ -258,8 +414,9 @@ const PlagiarismCheckPage: React.FC = () => {
                 footer={[
                     <Button key="close" onClick={() => setIsAiModalVisible(false)}>Đóng</Button>
                 ]}
-                width={850}
+                width={window.innerWidth < 768 ? '95%' : 850}
                 className="ai-details-modal"
+                style={{ top: 20 }}
             >
                 <div style={{ marginBottom: 25 }}>
                     <Row gutter={20} style={{ marginBottom: 20 }}>
@@ -549,8 +706,7 @@ const PlagiarismCheckPage: React.FC = () => {
 
             setTimeout(() => {
                 setCurrentStep(2);
-                fetchHistory(); // Làm mới lịch sử
-                // Cập nhật trạng thái lượt kiểm tra toàn cục
+                fetchHistory();
                 dispatch(updateCredits({
                     remainingChecksToday: checkResult.remainingChecksToday,
                     dailyCheckLimit: checkResult.dailyCheckLimit
@@ -569,17 +725,14 @@ const PlagiarismCheckPage: React.FC = () => {
     const SourceComparisonBox: React.FC<{ match: IPlagiarismMatch, onClose: () => void }> = ({ match, onClose }) => {
         const [sourceContent, setSourceContent] = useState<string | null>(match.fullContent || null);
         const [loading, setLoading] = useState(!match.fullContent && !!match.matchedDocumentId);
+        const contentRef = useRef<HTMLDivElement>(null);
 
         useEffect(() => {
             if (!match.fullContent && match.matchedDocumentId) {
                 setLoading(true);
                 documentApi.getContent(match.matchedDocumentId)
-                    .then(res => {
-                        setSourceContent(res.content);
-                    })
-                    .catch(e => {
-                        console.error("Failed to fetch source content:", e);
-                    })
+                    .then(res => setSourceContent(res.content))
+                    .catch(e => console.error("Failed to fetch source content:", e))
                     .finally(() => setLoading(false));
             } else {
                 setSourceContent(match.fullContent || null);
@@ -587,154 +740,464 @@ const PlagiarismCheckPage: React.FC = () => {
             }
         }, [match.matchedDocumentId, match.fullContent]);
 
-        // Multi-segment highlighter logic
+        useEffect(() => {
+            if (!loading && sourceContent) {
+                const timer = setTimeout(() => {
+                    const activeElem = contentRef.current?.querySelector('.highlight-active');
+                    if (activeElem) {
+                        activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 300);
+                return () => clearTimeout(timer);
+            }
+        }, [loading, sourceContent, match.text]);
+
         const renderHighlightedSource = (text: string) => {
             if (!text) return null;
+            const activeSnippet = (match.text || "").trim();
+            const otherSnippets = (match.allSnippets || []).map(s => s.trim()).filter(s => s && s !== activeSnippet && s.length > 8);
+            // 1-to-1 character folding to preserve indices while allowing accent-insensitive search
+            const foldChar = (c: string) => {
+                const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd');
+                return f.length > 0 ? f[0] : c;
+            };
+            
+            const foldedText = text.split('').map(foldChar).join('').toLowerCase();
+            const markers = new Uint8Array(text.length);
 
-            const activeSnippet = match.text;
-            const otherSnippets = (match.allSnippets || []).filter(s => s !== activeSnippet);
-
-            return text.split('\n').map((line, lineIdx) => {
-                if (!line.trim()) return <br key={lineIdx} />;
-
-                let fragments: { text: string, type: 'active' | 'other' | 'none' }[] = [{ text: line, type: 'none' }];
-
-                // 1. Mark active snippet
-                if (activeSnippet && line.includes(activeSnippet)) {
-                    let newFrags: typeof fragments = [];
-                    fragments.forEach(f => {
-                        if (f.type !== 'none') { newFrags.push(f); return; }
-                        const parts = f.text.split(activeSnippet);
-                        parts.forEach((p, pIdx) => {
-                            if (p) newFrags.push({ text: p, type: 'none' });
-                            if (pIdx < parts.length - 1) newFrags.push({ text: activeSnippet, type: 'active' });
-                        });
-                    });
-                    fragments = newFrags;
+            const markSnippet = (snippet: string, markerType: number) => {
+                if (!snippet || snippet.length < 4) return;
+                
+                // Fold the snippet as well for comparison
+                const normSnippet = snippet.split('').map(foldChar).join('').toLowerCase().trim();
+                
+                try {
+                    // Create pattern: escaping special chars and allowing any non-alphanumeric characters (like punctuation, spaces, newlines) between words.
+                    // This is crucial because backend's exact-match text strips punctuation, but the rendering text still has them!
+                    const pattern = normSnippet
+                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                        .replace(/\s+/g, '[^a-z0-9A-Z_]+');
+                    
+                    const regex = new RegExp(pattern, 'gi');
+                    let matchResult;
+                    
+                    // Search in the FOLDED text which has identical length to original
+                    while ((matchResult = regex.exec(foldedText)) !== null) {
+                        const start = matchResult.index;
+                        const end = start + matchResult[0].length;
+                        for (let i = start; i < end; i++) {
+                            // Active (1) overrules Secondary (2)
+                            if (markers[i] === 0 || (markerType === 1)) markers[i] = markerType;
+                        }
+                        if (regex.lastIndex === start) regex.lastIndex++;
+                    }
+                } catch (e) {
+                    console.error("Marker Regex error:", e);
                 }
+            };
+            otherSnippets.forEach(s => markSnippet(s, 2));
+            if (activeSnippet) markSnippet(activeSnippet, 1);
 
-                // 2. Mark other snippets from same source
-                otherSnippets.forEach(snippet => {
-                    if (!line.includes(snippet)) return;
-                    let newFrags: typeof fragments = [];
-                    fragments.forEach(f => {
-                        if (f.type !== 'none') { newFrags.push(f); return; }
-                        const parts = f.text.split(snippet);
-                        parts.forEach((p, pIdx) => {
-                            if (p) newFrags.push({ text: p, type: 'none' });
-                            if (pIdx < parts.length - 1) newFrags.push({ text: snippet, type: 'other' });
-                        });
-                    });
-                    fragments = newFrags;
-                });
-
-                return (
-                    <React.Fragment key={lineIdx}>
-                        {fragments.map((frag, fragIdx) => (
-                            <span
-                                key={fragIdx}
-                                className={frag.type === 'active' ? 'highlight-active' : (frag.type === 'other' ? 'highlight-secondary' : '')}
-                                title={frag.type === 'active' ? 'Đoạn văn Đang chọn đối chiếu' : (frag.type === 'other' ? 'Đoạn văn trùng khớp từ nguồn này' : undefined)}
-                            >
-                                {frag.text}
-                            </span>
-                        ))}
-                        <br />
-                    </React.Fragment>
-                );
-            });
+            const elements: React.ReactNode[] = [];
+            let i = 0, key = 0;
+            while (i < text.length) {
+                const currentType = markers[i];
+                let j = i + 1;
+                while (j < text.length && markers[j] === currentType) j++;
+                const chunk = text.substring(i, j);
+                if (currentType === 1) elements.push(<mark key={key++} className="highlight-active" style={{ background: '#bae7ff', color: '#003a8c', borderRadius: 3, padding: '1px 0', fontWeight: 600, boxShadow: '0 0 0 1px #69c0ff' }}>{chunk}</mark>);
+                else if (currentType === 2) elements.push(<mark key={key++} className="highlight-secondary" style={{ background: '#fff1b8', color: '#613400', borderRadius: 3, padding: '1px 0', boxShadow: '0 0 0 1px #ffd666' }}>{chunk}</mark>);
+                else {
+                    elements.push(<span key={key++}>{chunk}</span>);
+                }
+                i = j;
+            }
+            return elements;
         };
 
         return (
-            <div className="comparison-source-panel animate-fade-in" style={{ position: 'sticky', top: 20 }}>
-                <div style={{ padding: '0 0 12px 0', borderBottom: '3px solid #1890ff', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1890ff' }}></div>
-                        <Text strong style={{ color: '#1890ff', fontSize: 13, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                            TÀI LIỆU ĐỐI SOÁT CHI TIẾT
-                        </Text>
+            <Card
+                className="comparison-source-panel animate-fade-in glass-card"
+                style={{ position: 'sticky', top: 20, border: '1px solid #bae7ff' }}
+                title={
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Space>
+                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1890ff' }}></div>
+                            <Text strong style={{ color: '#003a8c' }}>TÀI LIỆU ĐỐI SOÁT CHI TIẾT</Text>
+                        </Space>
+                        <Button 
+                            type="primary" 
+                            danger 
+                            ghost 
+                            size="small" 
+                            icon={<CloseOutlined />} 
+                            onClick={onClose}
+                        >
+                            Đóng
+                        </Button>
                     </div>
-                    <Button type="primary" danger ghost size="small" icon={<ArrowRightOutlined />} onClick={onClose}>
-                        Đóng xem nguồn
-                    </Button>
-                </div>
-
-                <Card
-                    className="glass-card"
-                    bodyStyle={{ padding: 16 }}
-                    style={{ marginBottom: 20, border: '1px solid #bae7ff' }}
-                >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 15 }}>
-                        <div style={{ flex: 1 }}>
-                            <Title level={5} style={{ color: '#003a8c', marginBottom: 4 }}>{match.source}</Title>
+                }
+                headStyle={{ background: '#f0f7ff', borderBottom: '1px solid #bae7ff' }}
+                bodyStyle={{ padding: 16 }}
+            >
+                <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 15, background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e6f7ff' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <Title level={5} style={{ color: '#003a8c', marginBottom: 4, fontSize: 14, wordBreak: 'break-word' }}>{match.source}</Title>
                             <Space split={<Divider type="vertical" />}>
-                                {match.author && <Text type="secondary" style={{ fontSize: 12 }}><UserOutlined /> {match.author}</Text>}
-                                <Tag color="blue" icon={<FileSearchOutlined />}>Đang so khớp</Tag>
+                                {match.author && <Text type="secondary" style={{ fontSize: 11 }}><UserOutlined /> {match.author}</Text>}
+                                <Tag color="blue" icon={<FileSearchOutlined />} style={{ fontSize: 10 }}>Đang so khớp</Tag>
                             </Space>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                            <Statistic
-                                title="Góp mặt hệ thống"
-                                value={match.similarity}
-                                suffix="%"
-                                valueStyle={{ color: '#1890ff', fontSize: 22, fontWeight: 'bold' }}
-                            />
-                        </div>
-                    </div>
-                </Card>
-
-                <div className="plagiarism-word-container custom-scrollbar" style={{ height: 'calc(100vh - 420px)', minHeight: 450, padding: '20px', background: '#f8fafc' }}>
-                    <div className="word-page" style={{
-                        padding: '60px 80px',
-                        minHeight: '100%',
-                        fontSize: '15.5px',
-                        border: '1px solid #e2e8f0',
-                        boxShadow: '0 10px 25px rgba(0,0,0,0.05)'
-                    }}>
-                        <div style={{ color: '#94a3b8', marginBottom: 40, fontSize: '12px', textAlign: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '15px', fontWeight: 600 }}>
-                            {match.source.toUpperCase()} - TOÀN VĂN
-                        </div>
-
-                        {loading ? (
-                            <div style={{ textAlign: 'center', padding: '100px 0' }}>
-                                <Badge status="processing" text="Đang đồng bộ dữ liệu toàn phần..." />
-                            </div>
-                        ) : sourceContent ? (
-                            <Paragraph style={{
-                                whiteSpace: 'pre-wrap',
-                                lineHeight: '1.9',
-                                textAlign: 'justify',
-                                color: '#2c3e50',
-                                fontFamily: '"Times New Roman", Times, serif'
-                            }}>
-                                {renderHighlightedSource(sourceContent)}
-                            </Paragraph>
-                        ) : (
-                            <div style={{ textAlign: 'center', padding: '80px 40px', background: '#fff', borderRadius: 12 }}>
-                                <InboxOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 20 }} />
-                                <Paragraph style={{ fontSize: 16, color: '#595959' }}>
-                                    {match.text}
-                                </Paragraph>
-                                <Divider />
-                                <Text type="secondary" italic>
-                                    Đang tải nội dung gốc...
-                                </Text>
-                            </div>
-                        )}
-                        <div style={{ color: '#94a3b8', marginTop: 50, fontSize: '11px', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '20px', fontStyle: 'italic' }}>
-                            --- Kết thúc văn bản đối soát ---
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <Statistic title="Góp mặt" value={match.similarity} suffix="%" valueStyle={{ color: '#1890ff', fontSize: 20, fontWeight: 'bold' }} />
                         </div>
                     </div>
                 </div>
-
-                <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
-                    <div style={{ flex: 1, padding: '10px 15px', background: '#e6f7ff', borderRadius: 8, border: '1px solid #91d5ff', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 12, height: 12, background: '#3b82f6', borderRadius: 2 }}></div>
-                        <Text style={{ fontSize: 11, color: '#0050b3' }}>Đang chọn</Text>
+                
+                <div 
+                    className="custom-scrollbar" 
+                    ref={contentRef} 
+                    style={{ 
+                        height: 'calc(100vh - 400px)', 
+                        minHeight: 400, 
+                        padding: '24px', 
+                        background: '#f8fafc', 
+                        overflowY: 'auto', 
+                        overflowX: 'hidden',
+                        border: '1px solid #e2e8f0', 
+                        borderRadius: 8 
+                    }}
+                >
+                    <div style={{ lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', fontFamily: '"Merriweather", serif', fontSize: 15, color: '#334155', textAlign: 'justify' }}>
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '100px 0' }}>
+                                <Spin tip="Đang tải dữ liệu nguồn..." />
+                            </div>
+                        ) : renderHighlightedSource(sourceContent || "")}
                     </div>
-                    <div style={{ flex: 1, padding: '10px 15px', background: '#fffbeb', borderRadius: 8, border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 12, height: 12, background: '#fbbf24', borderRadius: 2 }}></div>
-                        <Text style={{ fontSize: 11, color: '#92400e' }}>Trùng lặp khác</Text>
+                </div>
+
+                <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    <Tag color="blue" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Đang chọn</Tag>
+                    <Tag color="orange" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Trùng lặp khác</Tag>
+                </div>
+            </Card>
+        );
+    };
+
+    const TurnitinSidebar = () => {
+        if (currentStep !== 2 || !filteredResult) return null;
+
+        const activeScore = Math.round(filteredResult.score);
+        
+        return (
+            <div className="turnitin-sidebar-container">
+                <style>{`
+                    .turnitin-sidebar-container {
+                        position: fixed;
+                        top: 64px;
+                        right: 0;
+                        height: calc(100vh - 64px);
+                        display: flex;
+                        z-index: 1001;
+                    }
+                    .turnitin-panel {
+                        background: #fdfdfd;
+                        width: ${sidePanelVisible ? '340px' : '0'};
+                        overflow: hidden;
+                        transition: width 0.3s cubic-bezier(0.2, 0, 0, 1);
+                        box-shadow: -10px 0 20px rgba(0,0,0,0.08);
+                        border-left: 1px solid #e0e0e0;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    .turnitin-vertical-tabs {
+                        width: 55px;
+                        background: #333639;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        padding-top: 15px;
+                        box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+                    }
+                    .v-tab-item {
+                        width: 55px;
+                        height: 70px;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        cursor: pointer;
+                        color: #adb5bd;
+                        transition: all 0.2s;
+                        border-bottom: 1px solid #444;
+                        position: relative;
+                        padding: 10px 0;
+                    }
+                    .v-tab-item:hover {
+                        background: #444;
+                        color: #fff;
+                    }
+                    .v-tab-item.active {
+                        background: #1890ff; /* Primary Blue */
+                        color: #fff;
+                    }
+                    .v-tab-item .tab-val {
+                        font-weight: 800;
+                        font-size: 18px;
+                        line-height: 1;
+                        margin-bottom: 4px;
+                    }
+                    .v-tab-item .tab-icon {
+                        font-size: 18px;
+                    }
+                    .red-header {
+                        background: #1890ff;
+                        color: white;
+                        padding: 18px 20px;
+                        font-size: 16px;
+                        font-weight: 700;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .panel-inner {
+                        flex: 1;
+                        overflow-y: auto;
+                        padding: 24px;
+                        background: #fff;
+                    }
+                    .filter-group {
+                        margin-bottom: 32px;
+                    }
+                    .filter-label {
+                        font-weight: 700;
+                        color: #333;
+                        font-size: 14px;
+                        margin-bottom: 16px;
+                        display: block;
+                    }
+                    .filter-row {
+                        margin-bottom: 12px;
+                        display: flex;
+                        align-items: center;
+                    }
+                    .filter-row .ant-checkbox-wrapper {
+                        font-size: 14px;
+                        color: #555;
+                    }
+                    .sub-label {
+                        font-size: 13px;
+                        color: #666;
+                        margin-bottom: 12px;
+                        font-weight: 600;
+                    }
+                    .apply-btn {
+                        background: #1890ff;
+                        border-color: #1890ff;
+                        height: 40px;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .apply-btn:hover {
+                        background: #40a9ff !important;
+                        border-color: #40a9ff !important;
+                    }
+                `}</style>
+                
+                <div className="turnitin-panel">
+                    {sidePanelType === 'filters' && (
+                        <>
+                            <div className="red-header">
+                                <span>Bộ lọc và Tùy chọn</span>
+                                <CloseOutlined onClick={() => setSidePanelVisible(false)} style={{ cursor: 'pointer', fontSize: 14 }} />
+                            </div>
+                            <div className="panel-inner custom-scrollbar">
+                                <div className="filter-group">
+                                    <span className="filter-label">BỘ LỌC</span>
+                                    <div className="filter-row">
+                                        <Checkbox 
+                                            checked={excludeQuotes} 
+                                            onChange={e => setExcludeQuotes(e.target.checked)}
+                                        >
+                                            Loại trừ Trích dẫn
+                                        </Checkbox>
+                                    </div>
+                                    <div className="filter-row">
+                                        <Checkbox 
+                                            checked={excludeBibliography} 
+                                            onChange={e => setExcludeBibliography(e.target.checked)}
+                                        >
+                                            Loại trừ Mục lục Tham khảo
+                                        </Checkbox>
+                                    </div>
+                                </div>
+
+                                <Divider style={{ margin: '16px 0 24px' }} />
+
+                                <div className="filter-group">
+                                    <span className="filter-label">LOẠI TRỪ CÁC NGUỒN CÓ ÍT HƠN:</span>
+                                    <Radio.Group 
+                                        value={excludeType} 
+                                        onChange={e => setExcludeType(e.target.value)}
+                                        style={{ width: '100%' }}
+                                    >
+                                        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                                            <Radio value="words" style={{ display: 'flex', alignItems: 'center' }}>
+                                                <Space>
+                                                    <InputNumber 
+                                                        size="small" 
+                                                        min={1} 
+                                                        value={excludeMinWords} 
+                                                        onChange={val => setExcludeMinWords(val || 1)} 
+                                                        disabled={excludeType !== 'words'}
+                                                        style={{ width: 60 }}
+                                                    />
+                                                    <span>từ</span>
+                                                </Space>
+                                            </Radio>
+                                            <Radio value="percent" style={{ display: 'flex', alignItems: 'center' }}>
+                                                <Space>
+                                                    <InputNumber 
+                                                        size="small" 
+                                                        min={1} 
+                                                        max={100} 
+                                                        value={excludeMinPercent} 
+                                                        onChange={val => setExcludeMinPercent(val || 1)} 
+                                                        disabled={excludeType !== 'percent'}
+                                                        style={{ width: 60 }}
+                                                    />
+                                                    <span>%</span>
+                                                </Space>
+                                            </Radio>
+                                            <Radio value="none">Không loại trừ theo kích thước</Radio>
+                                        </Space>
+                                    </Radio.Group>
+                                </div>
+
+                                <div style={{ marginTop: 40, textAlign: 'center' }}>
+                                    <Button 
+                                        type="primary" 
+                                        className="apply-btn"
+                                        block
+                                        onClick={() => setSidePanelVisible(false)}
+                                    >
+                                        Áp dụng các thay đổi
+                                    </Button>
+                                    <Button 
+                                        type="link" 
+                                        style={{ marginTop: 12, color: '#666' }}
+                                        onClick={() => {
+                                            setExcludeQuotes(false);
+                                            setExcludeBibliography(false);
+                                            setExcludeType('none');
+                                        }}
+                                    >
+                                        Thiết lập lại đầu
+                                    </Button>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {sidePanelType === 'matches' && (
+                        <>
+                            <div className="red-header">
+                                <span>Tóm tắt kết quả khớp</span>
+                                <CloseOutlined onClick={() => setSidePanelVisible(false)} style={{ cursor: 'pointer', fontSize: 14 }} />
+                            </div>
+                            <div className="panel-inner custom-scrollbar" style={{ padding: '16px' }}>
+                                <div style={{ marginBottom: 20, textAlign: 'center' }}>
+                                    <Statistic 
+                                        value={activeScore} 
+                                        suffix="%" 
+                                        title={<Text strong style={{ color: '#1890ff' }}>CHỈ SỐ TRÙNG KHỚP</Text>}
+                                        valueStyle={{ color: '#1890ff', fontSize: 36, fontWeight: 900 }}
+                                    />
+                                </div>
+                                <Divider style={{ margin: '12px 0 20px' }} />
+                                {filteredResult.matches.map((m: any, idx: number) => (
+                                    <div 
+                                        key={idx} 
+                                        className="simple-match-row"
+                                        style={{
+                                            borderLeft: `4px solid ${m.severity === 'high' ? '#ff4d4f' : (m.severity === 'medium' ? '#faad14' : '#52c41a')}`,
+                                            background: selectedMatch?.source === m.source ? '#fff1f0' : '#fff',
+                                            padding: '12px',
+                                            marginBottom: '8px',
+                                            borderRadius: '0 4px 4px 0',
+                                            cursor: 'pointer',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                                            border: selectedMatch?.source === m.source ? '1px solid #ffccc7' : '1px solid #f0f0f0',
+                                            borderLeftWidth: '4px'
+                                        }}
+                                        onClick={() => {
+                                            const segments = (result?.detailedAnalysis?.segments || []);
+                                            const allMatchedTexts = segments
+                                                .filter((s: any) => s.source === m.source && s.matchedText)
+                                                .map((s: any) => s.matchedText);
+                                            const firstSeg = segments.find((s: any) => s.source === m.source && s.matchedText);
+                                            
+                                            setSelectedMatch({ 
+                                                ...m, 
+                                                text: firstSeg?.matchedText || m.text,
+                                                allSnippets: allMatchedTexts 
+                                            });
+                                            const matchIndex = segments.findIndex((s: any) => s.source === m.source);
+                                            if (matchIndex !== -1) {
+                                                setActiveMatchId(matchIndex);
+                                                document.getElementById(`match-${matchIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                            <Text strong style={{ color: '#1890ff', fontSize: 16 }}>{idx + 1}</Text>
+                                            <Text strong style={{ color: '#333' }}>{m.similarity}%</Text>
+                                        </div>
+                                        <Text ellipsis style={{ fontSize: 12, display: 'block', color: '#555' }}>{m.source}</Text>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="turnitin-vertical-tabs">
+                    <div 
+                        className={`v-tab-item ${sidePanelType === 'matches' && sidePanelVisible ? 'active' : ''}`}
+                        onClick={() => {
+                            if (sidePanelType === 'matches' && sidePanelVisible) {
+                                setSidePanelVisible(false);
+                            } else {
+                                setSidePanelVisible(true);
+                                setSidePanelType('matches');
+                            }
+                        }}
+                    >
+                        <div className="tab-val">{activeScore}</div>
+                        <LayersOutlined className="tab-icon" />
+                    </div>
+                    <div 
+                        className={`v-tab-item ${sidePanelType === 'filters' && sidePanelVisible ? 'active' : ''}`}
+                        onClick={() => {
+                            if (sidePanelType === 'filters' && sidePanelVisible) {
+                                setSidePanelVisible(false);
+                            } else {
+                                setSidePanelVisible(true);
+                                setSidePanelType('filters');
+                            }
+                        }}
+                    >
+                        <FilterOutlined style={{ fontSize: 22 }} />
+                    </div>
+                    <div className="v-tab-item" onClick={() => window.print()}>
+                        <DownloadOutlined style={{ fontSize: 22 }} />
+                    </div>
+                    <div className="v-tab-item">
+                        <InfoCircleOutlined style={{ fontSize: 22 }} />
                     </div>
                 </div>
             </div>
@@ -742,23 +1205,26 @@ const PlagiarismCheckPage: React.FC = () => {
     };
 
     const renderComparisonSource = () => {
+
         if (!selectedMatch) return null;
         return <SourceComparisonBox match={selectedMatch} onClose={() => setSelectedMatch(null)} />;
     };
 
     const renderDetailedAnalysis = () => {
-        if (!result?.detailedAnalysis?.segments) return <Paragraph>{fullText}</Paragraph>;
+        const currentData = filteredResult || result;
+        if (!currentData?.detailedAnalysis?.segments) return <Paragraph>{fullText}</Paragraph>;
 
-        return result.detailedAnalysis.segments.map((seg: any, idx: number) => {
+        return currentData.detailedAnalysis.segments.map((seg: any, idx: number) => {
             if (seg.isExcluded) {
-                return (
-                    <span key={idx} style={{ color: '#bfbfbf', textDecoration: 'none' }} title={seg.exclusionReason}>
-                        {seg.text}
-                    </span>
-                );
+                return <span key={idx}>{seg.text}</span>;
             }
 
-            if (seg.score > 15) {
+            if (seg.score > 0) {
+                // Only highlight if the source is still in our filtered matches list
+                const isActiveSource = currentData.matches.some((m: any) => m.source === seg.source);
+                
+                if (!isActiveSource) return <span key={idx}>{seg.text}</span>;
+
                 const isSelected = selectedMatch && selectedMatch.source === seg.source;
                 const className = `highlight-${seg.severity} ${isSelected ? 'highlight-active' : ''}`;
                 return (
@@ -766,13 +1232,24 @@ const PlagiarismCheckPage: React.FC = () => {
                         key={idx}
                         className={className}
                         onClick={() => {
-                            const match = (result?.matches || []).find((m: any) => m.source === seg.source);
+                            const match = currentData.matches.find((m: any) => m.source === seg.source);
                             if (match) {
-                                setSelectedMatch(match);
+                                // CRITICAL: pass seg.matchedText (text from SOURCE document),
+                                // NOT seg.text (text from submitted document).
+                                // Also collect all matchedText snippets from other segments of the same source
+                                const allMatchedTexts = currentData.detailedAnalysis.segments
+                                    .filter((s: any) => s.source === seg.source && s.matchedText)
+                                    .map((s: any) => s.matchedText);
+                                
+                                setSelectedMatch({ 
+                                    ...match, 
+                                    text: seg.matchedText || seg.text,
+                                    allSnippets: allMatchedTexts 
+                                });
                                 setActiveMatchId(seg.id);
                             }
                         }}
-                        id={`match-${seg.id}`}
+                        id={`match-${idx}`}
                         title={`Trùng khớp ${seg.score}% từ ${seg.source}`}
                     >
                         {seg.text}
@@ -867,19 +1344,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                 </div>
                             )}
 
-                            {user?.role === 'Student' && (
-                                <div style={{ marginTop: 24, textAlign: 'center' }}>
-                                    <Card size="small" style={{ display: 'inline-block', background: (user.remainingChecksToday || 0) > 0 ? '#f6ffed' : '#fff2e8', border: 'none' }}>
-                                        <Space>
-                                            <ClockCircleOutlined />
-                                            <Text>Lượt kiểm tra hôm nay: </Text>
-                                            <Text strong style={{ color: (user.remainingChecksToday || 0) > 0 ? '#52c41a' : '#ff4d4f' }}>
-                                                {user.remainingChecksToday ?? 0}/{user.dailyCheckLimit ?? 5}
-                                            </Text>
-                                        </Space>
-                                    </Card>
-                                </div>
-                            )}
+                            {/* Đã bỏ giới hạn lượt kiểm tra cho sinh viên */}
 
                             {((inputType === 'file' && pendingFile) || (inputType === 'text' && pastedText.trim().length > 100)) && (
                                 <div style={{ textAlign: 'center', marginTop: 30 }}>
@@ -890,9 +1355,8 @@ const PlagiarismCheckPage: React.FC = () => {
                                         className="gradient-btn"
                                         onClick={startAnalysis}
                                         style={{ height: 50, padding: '0 40px', fontSize: 18 }}
-                                        disabled={user?.role === 'Student' && (user.remainingChecksToday === 0)}
                                     >
-                                        {user?.role === 'Student' && user.remainingChecksToday === 0 ? "Đã hết lượt kiểm tra hôm nay" : "Bắt đầu kiểm tra đạo văn"}
+                                        Bắt đầu kiểm tra đạo văn
                                     </Button>
                                 </div>
                             )}
@@ -946,7 +1410,8 @@ const PlagiarismCheckPage: React.FC = () => {
                         <div style={{ textAlign: 'center', padding: '60px 0' }}>
                             <Progress
                                 type="circle"
-                                percent={progress}
+                                percent={Math.round(progress)}
+                                format={(percent) => `${Math.round(percent || 0)}%`}
                                 strokeColor={{
                                     '0%': '#108ee9',
                                     '100%': '#87d068',
@@ -964,340 +1429,313 @@ const PlagiarismCheckPage: React.FC = () => {
                         </div>
                     )}
 
-                    {currentStep === 2 && result && (
+                    {currentStep === 2 && (result || filteredResult) && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
-                            <Row gutter={[24, 24]}>
-                                <Col span={24}>
-                                    {/* Modern Result Header */}
-                                    <Card
-                                        className="glass-card"
-                                        style={{
-                                            marginBottom: 24,
-                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                            border: 'none',
-                                            overflow: 'hidden'
-                                        }}
-                                        bodyStyle={{ padding: 0 }}
-                                    >
-                                        <Row>
-                                            {/* Left side - Statistics */}
-                                            <Col xs={24} lg={14} style={{ padding: '32px', borderRight: '1px solid rgba(255,255,255,0.1)' }}>
-                                                <Row gutter={[24, 24]}>
-                                                    <Col xs={24} sm={12}>
-                                                        <div style={{ textAlign: 'center' }}>
-                                                            <div style={{
-                                                                fontSize: 48,
-                                                                fontWeight: 'bold',
-                                                                color: '#fff',
-                                                                textShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}>
-                                                                {result.score}%
-                                                            </div>
-                                                            <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
-                                                                Tỷ lệ trùng khớp
-                                                            </div>
-                                                            <Tag
-                                                                color={result.score > 20 ? 'error' : 'success'}
-                                                                style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
-                                                            >
-                                                                {result.score > 20 ? '⚠️ Nguy cơ cao' : '✅ An toàn'}
-                                                            </Tag>
-                                                        </div>
-                                                    </Col>
-                                                    <Col xs={24} sm={12}>
-                                                        <div style={{ textAlign: 'center' }}>
-                                                            <div style={{
-                                                                fontSize: 48,
-                                                                fontWeight: 'bold',
-                                                                color: '#fff',
-                                                                textShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                                                            }}>
-                                                                {result.matchedDocs}
-                                                            </div>
-                                                            <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
-                                                                Nguồn trùng khớp
-                                                            </div>
-                                                            <Tag
-                                                                color="processing"
-                                                                style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
-                                                            >
-                                                                📚 {result.matchedDocs} tài liệu
-                                                            </Tag>
-                                                        </div>
-                                                    </Col>
-                                                </Row>
-
-                                                {checkInfo && (
-                                                    <Row gutter={[16, 16]} style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                            <div style={{ paddingRight: sidePanelVisible ? 395 : 55, transition: 'padding 0.3s ease' }}>
+                                <TurnitinSidebar />
+                                
+                                <Row gutter={[24, 24]}>
+                                    <Col span={24}>
+                                        {/* Modern Result Header */}
+                                        <Card
+                                            className="glass-card"
+                                            style={{
+                                                marginBottom: 24,
+                                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                border: 'none',
+                                                overflow: 'hidden'
+                                            }}
+                                            bodyStyle={{ padding: 0 }}
+                                        >
+                                            <Row>
+                                                {/* Left side - Statistics using FILTERED results */}
+                                                <Col xs={24} lg={14} style={{ padding: '32px', borderRight: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <Row gutter={[24, 24]}>
                                                         <Col xs={24} sm={12}>
-                                                            <Space direction="vertical" size={4}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>👤 Người nộp</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: 15 }}>{checkInfo.userName}</Text>
-                                                            </Space>
+                                                            <div style={{ textAlign: 'center' }}>
+                                                                <div style={{
+                                                                    fontSize: 48,
+                                                                    fontWeight: 'bold',
+                                                                    color: '#fff',
+                                                                    textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                                }}>
+                                                                    {(filteredResult?.score ?? result.score).toFixed(1)}%
+                                                                </div>
+                                                                <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
+                                                                    Chỉ số trùng khớp
+                                                                </div>
+                                                                <Tag
+                                                                    color={(filteredResult?.score ?? result.score) > 20 ? 'error' : 'success'}
+                                                                    style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
+                                                                >
+                                                                    {(filteredResult?.score ?? result.score) > 20 ? '⚠️ Nguy cơ cao' : '✅ An toàn'}
+                                                                </Tag>
+                                                            </div>
                                                         </Col>
                                                         <Col xs={24} sm={12}>
-                                                            <Space direction="vertical" size={4}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>📅 Ngày nộp</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: 15 }}>
-                                                                    {new Date(checkInfo.checkDate).toLocaleDateString('vi-VN')}
-                                                                </Text>
-                                                            </Space>
+                                                            <div style={{ textAlign: 'center' }}>
+                                                                <div style={{
+                                                                    fontSize: 48,
+                                                                    fontWeight: 'bold',
+                                                                    color: '#fff',
+                                                                    textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                                                }}>
+                                                                    {filteredResult?.matchedDocs ?? result.matchedDocs}
+                                                                </div>
+                                                                <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 8 }}>
+                                                                    Nguồn trùng khớp
+                                                                </div>
+                                                                <Tag
+                                                                    color="processing"
+                                                                    style={{ marginTop: 12, fontSize: 13, padding: '4px 12px' }}
+                                                                >
+                                                                    📚 {filteredResult?.matchedDocs ?? result.matchedDocs} tài liệu
+                                                                </Tag>
+                                                            </div>
                                                         </Col>
                                                     </Row>
-                                                )}
-                                            </Col>
 
-                                            {/* Right side - Actions */}
-                                            <Col xs={24} lg={10} style={{ padding: '32px', background: 'rgba(255,255,255,0.05)' }}>
-                                                <div style={{ marginBottom: 16 }}>
-                                                    <Text strong style={{ color: '#fff', fontSize: 16, display: 'block', marginBottom: 16 }}>
-                                                        ⚡ Thao tác nhanh
-                                                    </Text>
-                                                </div>
-                                                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                                                    <Button
-                                                        block
-                                                        size="large"
-                                                        icon={<DownloadOutlined />}
-                                                        onClick={() => sourceDocId && window.open(documentApi.getDownloadUrl(sourceDocId), '_blank')}
-                                                        style={{
-                                                            background: 'rgba(255,255,255,0.15)',
-                                                            border: '1px solid rgba(255,255,255,0.3)',
-                                                            color: '#fff',
-                                                            fontWeight: 500
-                                                        }}
-                                                    >
-                                                        Tải xuống file gốc
-                                                    </Button>
-                                                    <Button
-                                                        block
-                                                        size="large"
-                                                        icon={<EyeOutlined />}
-                                                        onClick={handlePrint}
-                                                        style={{
-                                                            background: 'rgba(255,255,255,0.15)',
-                                                            border: '1px solid rgba(255,255,255,0.3)',
-                                                            color: '#fff',
-                                                            fontWeight: 500
-                                                        }}
-                                                    >
-                                                        Xuất báo cáo (In)
-                                                    </Button>
-                                                    {qualityAnalysis && (
+                                                    {checkInfo && (
+                                                        <Row gutter={[16, 16]} style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                                            <Col xs={24} sm={12}>
+                                                                <Space direction="vertical" size={4}>
+                                                                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>👤 Người nộp</Text>
+                                                                    <Text strong style={{ color: '#fff', fontSize: 15 }}>{checkInfo.userName}</Text>
+                                                                </Space>
+                                                            </Col>
+                                                            <Col xs={24} sm={12}>
+                                                                <Space direction="vertical" size={4}>
+                                                                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>📅 Ngày nộp</Text>
+                                                                    <Text strong style={{ color: '#fff', fontSize: 15 }}>
+                                                                        {new Date(checkInfo.checkDate).toLocaleDateString('vi-VN')}
+                                                                    </Text>
+                                                                </Space>
+                                                            </Col>
+                                                        </Row>
+                                                    )}
+                                                </Col>
+
+                                                {/* Right side - Actions */}
+                                                <Col xs={24} lg={10} style={{ padding: '32px', background: 'rgba(255,255,255,0.05)' }}>
+                                                    <div style={{ marginBottom: 16 }}>
+                                                        <Text strong style={{ color: '#fff', fontSize: 16, display: 'block', marginBottom: 16 }}>
+                                                            ⚡ Thao tác nhanh
+                                                        </Text>
+                                                    </div>
+                                                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
                                                         <Button
                                                             block
                                                             size="large"
-                                                            type="primary"
-                                                            icon={<CheckCircleOutlined />}
-                                                            onClick={() => setIsQualityModalVisible(true)}
+                                                            icon={<DownloadOutlined />}
+                                                            onClick={() => sourceDocId && window.open(documentApi.getDownloadUrl(sourceDocId), '_blank')}
                                                             style={{
-                                                                background: '#52c41a',
-                                                                borderColor: '#52c41a',
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                border: '1px solid rgba(255,255,255,0.3)',
+                                                                color: '#fff',
                                                                 fontWeight: 500
                                                             }}
                                                         >
-                                                            Xem phân tích chất lượng
+                                                            Tải xuống file gốc
                                                         </Button>
-                                                    )}
-                                                    <Divider style={{ borderColor: 'rgba(255,255,255,0.2)', margin: '8px 0' }} />
-                                                    <Button
-                                                        block
-                                                        size="large"
-                                                        danger
-                                                        type="primary"
-                                                        onClick={resetAnalysis}
-                                                        style={{ fontWeight: 500 }}
-                                                    >
-                                                        🔄 Kiểm tra file khác
-                                                    </Button>
-                                                </Space>
-                                            </Col>
-                                        </Row>
-                                    </Card>
-
-                                    {/* AI Detection Result Card */}
-                                    {result.aiProbability !== undefined && (
-                                        <Card
-                                            size="small"
-                                            style={{
-                                                marginBottom: 24,
-                                                background: result.aiProbability > 70 ? '#fff1f0' : (result.aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
-                                                border: `1px solid ${result.aiProbability > 70 ? '#ffa39e' : (result.aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
-                                            }}
-                                        >
-                                            <Row align="middle" gutter={24}>
-                                                <Col>
-                                                    <Statistic
-                                                        title={<Space><WarningOutlined /> Xác suất AI</Space>}
-                                                        value={result.aiProbability}
-                                                        suffix="%"
-                                                        valueStyle={{
-                                                            color: result.aiProbability > 70 ? '#cf1322' : (result.aiProbability > 40 ? '#d48806' : '#389e0d'),
-                                                            fontWeight: 'bold'
-                                                        }}
-                                                    />
-                                                </Col>
-                                                <Col>
-                                                    <Divider type="vertical" style={{ height: 40 }} />
-                                                </Col>
-                                                <Col flex="auto">
-                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                        <Text strong style={{ fontSize: 16 }}>
-                                                            Mức độ nghi ngờ: <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>{result.aiDetectionLevel}</Tag>
-                                                        </Text>
-                                                        <Text type="secondary">{result.aiAnalysis?.summary || "Đang phân tích chi tiết cấu trúc câu..."}</Text>
-                                                    </div>
-                                                </Col>
-                                                <Col>
-                                                    <Button type="link" onClick={() => setIsAiModalVisible(true)}>Xem chi tiết AI</Button>
+                                                        <Button
+                                                            block
+                                                            size="large"
+                                                            icon={<EyeOutlined />}
+                                                            onClick={handlePrint}
+                                                            style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                border: '1px solid rgba(255,255,255,0.3)',
+                                                                color: '#fff',
+                                                                fontWeight: 500
+                                                            }}
+                                                        >
+                                                            Xuất báo cáo (In)
+                                                        </Button>
+                                                        {qualityAnalysis && (
+                                                            <Button
+                                                                block
+                                                                size="large"
+                                                                type="primary"
+                                                                icon={<CheckCircleOutlined />}
+                                                                onClick={() => setIsQualityModalVisible(true)}
+                                                                style={{
+                                                                    background: '#52c41a',
+                                                                    borderColor: '#52c41a',
+                                                                    fontWeight: 500
+                                                                }}
+                                                            >
+                                                                Phân tích chất lượng
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            block
+                                                            size="large"
+                                                            onClick={() => setSidePanelVisible(true)}
+                                                            style={{ fontWeight: 600, background: '#1890ff', color: '#fff', border: 'none' }}
+                                                        >
+                                                            ⚙️ Mở Bộ lọc nâng cao
+                                                        </Button>
+                                                        <Button
+                                                            block
+                                                            size="large"
+                                                            ghost
+                                                            icon={<ArrowLeftOutlined />}
+                                                            onClick={resetAnalysis}
+                                                            style={{ 
+                                                                color: '#fff', 
+                                                                borderColor: 'rgba(255,255,255,0.6)',
+                                                                fontWeight: 600,
+                                                                marginTop: 12
+                                                            }}
+                                                        >
+                                                            Kiểm tra tài liệu khác
+                                                        </Button>
+                                                    </Space>
                                                 </Col>
                                             </Row>
                                         </Card>
-                                    )}
 
-                                    {/* Print-only Summary Header */}
-                                    <div className="print-only" style={{ padding: '20px 0', borderBottom: '2px solid #003a8c', marginBottom: 30 }}>
-                                        <Title level={2}>BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN</Title>
-                                        <Space size="large" style={{ marginTop: 20 }}>
-                                            <Statistic title="Tỷ lệ trùng khớp" value={result.score} suffix="%" valueStyle={{ color: result.score > 20 ? '#ff4d4f' : '#52c41a' }} />
-                                            <Statistic title="Số nguồn trùng khớp" value={result.matchedDocs} />
-                                            <Statistic title="Ngày kiểm tra" value={new Date().toLocaleDateString('vi-VN')} />
-                                        </Space>
-                                        <div style={{ marginTop: 20 }}>
-                                            <Text strong>Tên tài liệu:</Text> <Text>{pendingFileName}</Text>
-                                        </div>
-                                    </div>
-
-                                </Col>
-
-                                {/* Main Analysis Side-by-Side Area */}
-                                <Col xs={24} lg={selectedMatch ? 12 : 15}>
-                                    <Card
-                                        title={<Title level={5} style={{ margin: 0, color: '#003a8c' }}><FileTextOutlined /> {selectedMatch ? "BẢN GỐC (BÀI NỘP CỦA BẠN)" : "Nội dung bài nộp (Định dạng văn bản)"}</Title>}
-                                        size="small"
-                                        className="glass-card"
-                                        headStyle={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 20px' }}
-                                        bodyStyle={{ padding: 0 }}
-                                    >
-                                        <div className="plagiarism-word-container custom-scrollbar">
-                                            <div className="word-page">
-                                                {renderDetailedAnalysis()}
-                                            </div>
-                                        </div>
-                                    </Card>
-                                </Col>
-
-                                <Col xs={24} lg={selectedMatch ? 12 : 9}>
-                                    {selectedMatch ? (
-                                        renderComparisonSource()
-                                    ) : (
-                                        <div className="matches-list-container">
+                                        {/* AI Detection Result Card */}
+                                        {(filteredResult || result).aiProbability !== undefined && (
                                             <Card
-                                                title={
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                                        <Space><HistoryOutlined /> Nguồn trùng khớp</Space>
-                                                        <Tag color="processing">{result.matches.length} nguồn</Tag>
-                                                    </div>
-                                                }
                                                 size="small"
-                                                className="glass-card"
-                                                bodyStyle={{ padding: '8px' }}
+                                                style={{
+                                                    marginBottom: 24,
+                                                    background: (filteredResult || result).aiProbability > 70 ? '#fff1f0' : ((filteredResult || result).aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
+                                                    border: `1px solid ${(filteredResult || result).aiProbability > 70 ? '#ffa39e' : ((filteredResult || result).aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
+                                                }}
                                             >
-                                                <div className="custom-scrollbar" style={{ maxHeight: 'calc(100vh - 450px)', overflowY: 'auto' }}>
-                                                    <List<any>
-                                                        dataSource={result.matches || []}
-                                                        renderItem={(item: any, index: number) => {
+                                                <Row align="middle" gutter={[16, 16]}>
+                                                    <Col xs={24} sm={6}>
+                                                        <Statistic
+                                                            title={<Space><WarningOutlined /> Xác suất AI</Space>}
+                                                            value={(filteredResult || result).aiProbability}
+                                                            suffix="%"
+                                                            valueStyle={{
+                                                                color: (filteredResult || result).aiProbability > 70 ? '#cf1322' : ((filteredResult || result).aiProbability > 40 ? '#d48806' : '#389e0d'),
+                                                                fontWeight: 'bold',
+                                                                fontSize: window.innerWidth < 768 ? 20 : 24
+                                                            }}
+                                                        />
+                                                    </Col>
+                                                    <Col xs={0} sm={1}>
+                                                        <Divider type="vertical" style={{ height: 40 }} />
+                                                    </Col>
+                                                    <Col xs={24} sm={12}>
+                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                            <Text strong style={{ fontSize: 16 }}>
+                                                                Mức độ nghi ngờ: <Tag color={(filteredResult || result).aiProbability > 70 ? 'red' : ((filteredResult || result).aiProbability > 40 ? 'gold' : 'green')}>{(filteredResult || result).aiDetectionLevel}</Tag>
+                                                            </Text>
+                                                            <Text type="secondary" style={{ fontSize: 13 }}>{(filteredResult || result).aiAnalysis?.summary || "Đang phân tích chi tiết..."}</Text>
+                                                        </div>
+                                                    </Col>
+                                                    <Col xs={24} sm={5}>
+                                                        <Button type="primary" ghost block onClick={() => setIsAiModalVisible(true)}>Chi tiết AI</Button>
+                                                    </Col>
+                                                </Row>
+                                            </Card>
+                                        )}
+                                    </Col>
+
+                                    {/* Main Analysis Side-by-Side Area */}
+                                    <Col xs={24} lg={selectedMatch ? 12 : 16}>
+                                        <Card
+                                            title={
+                                                <Space>
+                                                    <FileTextOutlined style={{ color: '#1890ff' }} />
+                                                    <Text strong style={{ color: '#003a8c' }}>{selectedMatch ? "BẢN GỐC (BÀI NỘP)" : "Nội dung bài nộp"}</Text>
+                                                </Space>
+                                            }
+                                            size="small"
+                                            className="glass-card"
+                                            headStyle={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 20px' }}
+                                            bodyStyle={{ padding: 0 }}
+                                            style={{ height: '100%' }}
+                                        >
+                                            <div className="plagiarism-word-container custom-scrollbar" style={{ height: 'calc(100vh - 350px)', minHeight: 450, padding: '24px', background: '#fff', overflowX: 'hidden' }}>
+                                                <div className="word-page" style={{ lineHeight: '1.8', fontSize: 15, whiteSpace: 'pre-wrap', color: '#334155' }}>
+                                                    {renderDetailedAnalysis()}
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    </Col>
+
+                                    <Col xs={24} lg={selectedMatch ? 12 : 8}>
+                                        {selectedMatch ? (
+                                            renderComparisonSource()
+                                        ) : (
+                                            <div className="matches-summary-container">
+                                                <Card
+                                                    title={<Space><LayersOutlined style={{ color: '#1890ff' }} /> <Text strong>Tổng hợp nguồn trùng khớp</Text></Space>}
+                                                    className="glass-card"
+                                                    bodyStyle={{ padding: '0px' }}
+                                                >
+                                                    <div className="custom-scrollbar" style={{ maxHeight: 'calc(100vh - 425px)', overflowY: 'auto', padding: '12px' }}>
+                                                        {(filteredResult || result).matches.map((item: any, index: number) => {
                                                             const isSelected = !!selectedMatch && (selectedMatch as any).source === item.source;
                                                             return (
                                                                 <div
-                                                                    className={`match-item-premium ${isSelected ? 'active' : ''}`}
+                                                                    key={index}
+                                                                    className={`match-item-turnitin ${isSelected ? 'active' : ''}`}
                                                                     style={{
-                                                                        padding: '12px 16px',
-                                                                        borderRadius: '12px',
-                                                                        marginBottom: '10px',
+                                                                        padding: '16px',
+                                                                        borderRadius: '8px',
+                                                                        marginBottom: '12px',
                                                                         cursor: 'pointer',
-                                                                        transition: 'all 0.3s ease',
-                                                                        border: isSelected ? '1px solid #1890ff' : '1px solid #f0f0f0',
-                                                                        background: isSelected ? '#f0f7ff' : '#fff',
-                                                                        position: 'relative',
-                                                                        overflow: 'hidden'
+                                                                        transition: 'all 0.2s',
+                                                                        border: isSelected ? '2px solid #1890ff' : '1px solid #eee',
+                                                                        background: isSelected ? '#e6f7ff' : '#fff',
+                                                                        borderLeftWidth: '8px',
+                                                                        borderLeftColor: item.similarity > 50 ? '#ff4d4f' : (item.similarity > 20 ? '#faad14' : '#52c41a')
                                                                     }}
                                                                     onClick={() => {
-                                                                        setSelectedMatch(item);
-                                                                        // Highlight segments belonging to this source
-                                                                        const segments = result?.detailedAnalysis?.segments || [];
+                                                                        const segments = (filteredResult || result)?.detailedAnalysis?.segments || [];
+                                                                        // Collect all matchedText snippets from segments matching this source
+                                                                        const allMatchedTexts = segments
+                                                                            .filter((s: any) => s.source === item.source && s.matchedText)
+                                                                            .map((s: any) => s.matchedText);
+                                                                        
+                                                                        const firstSeg = segments.find((s: any) => s.source === item.source && s.matchedText);
+                                                                        
+                                                                        setSelectedMatch({ 
+                                                                            ...item, 
+                                                                            text: firstSeg?.matchedText || item.text,
+                                                                            allSnippets: allMatchedTexts 
+                                                                        });
                                                                         const matchIndex = segments.findIndex((s: any) => s.source === item.source);
                                                                         if (matchIndex !== -1) {
                                                                             setActiveMatchId(matchIndex);
-                                                                            const element = document.getElementById(`match-${matchIndex}`);
-                                                                            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                                            document.getElementById(`match-${matchIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                                                         }
                                                                     }}
                                                                 >
-                                                                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                                                                        <div style={{
-                                                                            width: '32px',
-                                                                            height: '32px',
-                                                                            borderRadius: '8px',
-                                                                            background: item.similarity > 50 ? '#fff1f0' : (item.similarity > 20 ? '#fffbe6' : '#f6ffed'),
-                                                                            display: 'flex',
-                                                                            alignItems: 'center',
-                                                                            justifyContent: 'center',
-                                                                            border: `1px solid ${item.similarity > 50 ? '#ffa39e' : (item.similarity > 20 ? '#ffe58f' : '#b7eb8f')}`,
-                                                                            flexShrink: 0
-                                                                        }}>
-                                                                            <Text strong style={{ color: item.similarity > 50 ? '#cf1322' : (item.similarity > 20 ? '#d48806' : '#389e0d') }}>
-                                                                                {index + 1}
-                                                                            </Text>
-                                                                        </div>
-
-                                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                                                                                <Text strong style={{ fontSize: '14px', color: isSelected ? '#1890ff' : '#262626' }} ellipsis title={item.source}>
-                                                                                    {item.source}
-                                                                                </Text>
-                                                                                <Text strong style={{ color: item.similarity > 50 ? '#cf1322' : (item.similarity > 20 ? '#d48806' : '#389e0d'), marginLeft: '8px' }}>
-                                                                                    {item.similarity}%
-                                                                                </Text>
-                                                                            </div>
-
-                                                                            <div style={{ marginBottom: '8px' }}>
-                                                                                <Progress
-                                                                                    percent={item.similarity}
-                                                                                    showInfo={false}
-                                                                                    size="small"
-                                                                                    strokeColor={item.similarity > 50 ? '#ff4d4f' : (item.similarity > 20 ? '#faad14' : '#52c41a')}
-                                                                                    trailColor="#f0f0f0"
-                                                                                />
-                                                                            </div>
-
-                                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                                <Space size={4}>
-                                                                                    <Tag color="blue" style={{ fontSize: '10px', margin: 0, padding: '0 4px', lineHeight: '16px' }}>Hệ thống BAU</Tag>
-                                                                                    {item.author && <Text type="secondary" style={{ fontSize: '11px' }}>• {item.author}</Text>}
-                                                                                </Space>
-                                                                                {isSelected && <Text style={{ fontSize: '11px', fontWeight: 600, color: '#1890ff' }}>Đang xem <ArrowRightOutlined style={{ fontSize: 10 }} /></Text>}
-                                                                            </div>
-                                                                        </div>
+                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                                        <Text strong style={{ color: '#1890ff', fontSize: 16 }}>{index + 1}</Text>
+                                                                        <Text strong style={{ fontSize: 18, color: '#333' }}>{item.similarity.toFixed(1)}%</Text>
+                                                                    </div>
+                                                                    <Text ellipsis={true} style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#444', marginBottom: 8 }}>
+                                                                        {item.source}
+                                                                    </Text>
+                                                                    <Progress 
+                                                                        percent={item.similarity} 
+                                                                        size="small" 
+                                                                        showInfo={false} 
+                                                                        strokeColor={item.similarity > 50 ? '#ca2027' : (item.similarity > 20 ? '#faad14' : '#52c41a')} 
+                                                                    />
+                                                                    <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+                                                                        <Tag color="default" style={{ fontSize: 10 }}>BAU Database</Tag>
+                                                                        {item.author && <Text type="secondary" style={{ fontSize: 11 }}>{item.author}</Text>}
                                                                     </div>
                                                                 </div>
                                                             );
-                                                        }}
-                                                    />
-                                                </div>
-                                            </Card>
-
-                                            <Card size="small" style={{ marginTop: 16, borderRadius: '12px', background: '#fafafa', border: '1px solid #f0f0f0' }}>
-                                                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                                    <Space size={4}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ff4d4f' }}></div> <Text type="secondary" style={{ fontSize: 12 }}>Rất cao (&gt;50%)</Text></Space>
-                                                    <Space size={4}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#faad14' }}></div> <Text type="secondary" style={{ fontSize: 12 }}>Trung bình (20-50%)</Text></Space>
-                                                    <Space size={4}><div style={{ width: 8, height: 8, borderRadius: '50%', background: '#52c41a' }}></div> <Text type="secondary" style={{ fontSize: 12 }}>Thấp (&lt;20%)</Text></Space>
-                                                </div>
-                                            </Card>
-                                        </div>
-                                    )}
-                                </Col>
-                            </Row>
+                                                        })}
+                                                    </div>
+                                                </Card>
+                                            </div>
+                                        )}
+                                    </Col>
+                                </Row>
+                            </div>
                         </motion.div>
                     )}
                 </Card>

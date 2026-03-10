@@ -38,8 +38,9 @@ const RegisterPage: React.FC = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8 }}
+                style={{ width: '100%', maxWidth: 450 }}
             >
-                <Card className="glass-card" style={{ width: 450, border: 'none', borderRadius: 16 }}>
+                <Card className="glass-card" style={{ width: '100%', border: 'none', borderRadius: 16 }}>
                     <div style={{ textAlign: 'center', marginBottom: 24 }}>
                         <div style={{
                             width: 60, height: 60, background: '#003a8c', borderRadius: 12,
