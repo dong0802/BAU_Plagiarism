@@ -1595,47 +1595,61 @@ const PlagiarismCheckPage: React.FC = () => {
                                             </Row>
                                         </Card>
 
-                                        {/* AI Detection Result Card */}
-                                        {(filteredResult || result).aiProbability !== undefined && (
-                                            <Card
-                                                size="small"
-                                                style={{
-                                                    marginBottom: 24,
-                                                    background: (filteredResult || result).aiProbability > 70 ? '#fff1f0' : ((filteredResult || result).aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
-                                                    border: `1px solid ${(filteredResult || result).aiProbability > 70 ? '#ffa39e' : ((filteredResult || result).aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
-                                                }}
-                                            >
-                                                <Row align="middle" gutter={[16, 16]}>
-                                                    <Col xs={24} sm={6}>
-                                                        <Statistic
-                                                            title={<Space><WarningOutlined /> Xác suất AI</Space>}
-                                                            value={(filteredResult || result).aiProbability}
-                                                            suffix="%"
-                                                            valueStyle={{
-                                                                color: (filteredResult || result).aiProbability > 70 ? '#cf1322' : ((filteredResult || result).aiProbability > 40 ? '#d48806' : '#389e0d'),
-                                                                fontWeight: 'bold',
-                                                                fontSize: window.innerWidth < 768 ? 20 : 24
-                                                            }}
-                                                        />
-                                                    </Col>
-                                                    <Col xs={0} sm={1}>
-                                                        <Divider type="vertical" style={{ height: 40 }} />
-                                                    </Col>
-                                                    <Col xs={24} sm={12}>
-                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                            <Text strong style={{ fontSize: 16 }}>
-                                                                Mức độ nghi ngờ: <Tag color={(filteredResult || result).aiProbability > 70 ? 'red' : ((filteredResult || result).aiProbability > 40 ? 'gold' : 'green')}>{(filteredResult || result).aiDetectionLevel}</Tag>
-                                                            </Text>
-                                                            <Text type="secondary" style={{ fontSize: 13 }}>{(filteredResult || result).aiAnalysis?.summary || "Đang phân tích chi tiết..."}</Text>
-                                                        </div>
-                                                    </Col>
-                                                    <Col xs={24} sm={5}>
-                                                        <Button type="primary" ghost block onClick={() => setIsAiModalVisible(true)}>Chi tiết AI</Button>
-                                                    </Col>
-                                                </Row>
-                                            </Card>
-                                        )}
-                                    </Col>
+                                    {/* AI Detection Result Card */}
+                                    {result.aiProbability !== undefined && (
+                                        <Card
+                                            size="small"
+                                            style={{
+                                                marginBottom: 24,
+                                                background: result.aiProbability > 70 ? '#fff1f0' : (result.aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
+                                                border: `1px solid ${result.aiProbability > 70 ? '#ffa39e' : (result.aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
+                                            }}
+                                        >
+                                            <Row align="middle" gutter={[16, 16]}>
+                                                <Col xs={24} sm={6}>
+                                                    <Statistic
+                                                        title={<Space><WarningOutlined /> Xác suất AI</Space>}
+                                                        value={result.aiProbability}
+                                                        suffix="%"
+                                                        valueStyle={{
+                                                            color: result.aiProbability > 70 ? '#cf1322' : (result.aiProbability > 40 ? '#d48806' : '#389e0d'),
+                                                            fontWeight: 'bold',
+                                                            fontSize: window.innerWidth < 768 ? 20 : 24
+                                                        }}
+                                                    />
+                                                </Col>
+                                                <Col xs={0} sm={1}>
+                                                    <Divider type="vertical" style={{ height: 40 }} />
+                                                </Col>
+                                                <Col xs={24} sm={12}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <Text strong style={{ fontSize: 16 }}>
+                                                            Mức độ nghi ngờ: <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>{result.aiDetectionLevel}</Tag>
+                                                        </Text>
+                                                        <Text type="secondary" style={{ fontSize: 13 }}>{result.aiAnalysis?.summary || "Đang phân tích chi tiết..."}</Text>
+                                                    </div>
+                                                </Col>
+                                                <Col xs={24} sm={5}>
+                                                    <Button type="primary" ghost block onClick={() => setIsAiModalVisible(true)}>Chi tiết AI</Button>
+                                                </Col>
+                                            </Row>
+                                        </Card>
+                                    )}
+
+                                    {/* Print-only Summary Header */}
+                                    <div className="print-only" style={{ padding: '20px 0', borderBottom: '2px solid #003a8c', marginBottom: 30 }}>
+                                        <Title level={2}>BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN</Title>
+                                        <Space size="large" style={{ marginTop: 20 }}>
+                                            <Statistic title="Tỷ lệ trùng khớp" value={result.score} suffix="%" valueStyle={{ color: result.score > 20 ? '#ff4d4f' : '#52c41a' }} />
+                                            <Statistic title="Số nguồn trùng khớp" value={result.matchedDocs} />
+                                            <Statistic title="Ngày kiểm tra" value={new Date().toLocaleDateString('vi-VN')} />
+                                        </Space>
+                                        <div style={{ marginTop: 20 }}>
+                                            <Text strong>Tên tài liệu:</Text> <Text>{pendingFileName}</Text>
+                                        </div>
+                                    </div>
+
+                                </Col>
 
                                     {/* Main Analysis Side-by-Side Area */}
                                     <Col xs={24} lg={selectedMatch ? 12 : 16}>
