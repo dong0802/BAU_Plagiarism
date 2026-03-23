@@ -3,7 +3,8 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using NPOI.XWPF.UserModel;
-using UglyToad.PdfPig;
+using iTextSharp.text.pdf;
+using iTextSharp.text.pdf.parser;
 
 namespace BAU_Plagiarism_System.Core.Services
 {
@@ -13,7 +14,7 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             if (stream == null || stream.Length == 0) return string.Empty;
 
-            string extension = Path.GetExtension(fileName).ToLower();
+            string extension = System.IO.Path.GetExtension(fileName).ToLower();
             Console.WriteLine($"[DocumentReader] Reading file: {fileName} (Ext: {extension})");
 
             try
@@ -67,7 +68,7 @@ namespace BAU_Plagiarism_System.Core.Services
 
                 Console.WriteLine($"[DocumentReader] ExtractTextAsync starting for: {filePath}");
                 
-                var fileName = Path.GetFileName(filePath);
+                var fileName = System.IO.Path.GetFileName(filePath);
                 
                 // Chạy với timeout 30 giây để tránh treo
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -122,16 +123,16 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             try 
             {
-                using (PdfDocument document = PdfDocument.Open(stream))
+                stream.Position = 0;
+                using (var reader = new PdfReader(stream))
                 {
                     StringBuilder sb = new StringBuilder();
-                    foreach (var page in document.GetPages())
+                    for (int i = 1; i <= reader.NumberOfPages; i++)
                     {
-                        if (page != null)
+                        var text = PdfTextExtractor.GetTextFromPage(reader, i);
+                        if (!string.IsNullOrWhiteSpace(text))
                         {
-                            var text = page.Text;
-                            if (!string.IsNullOrWhiteSpace(text))
-                                sb.AppendLine(text);
+                            sb.AppendLine(text);
                         }
                     }
                     return sb.ToString();

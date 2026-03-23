@@ -15,6 +15,8 @@ namespace BAU_Plagiarism_System.Core.Services
         public double Score { get; set; }
         public string? Source { get; set; }
         public int? SourceId { get; set; }
+        public bool IsBibliography { get; set; }
+        public bool IsQuote { get; set; }
         public bool IsExcluded { get; set; }
         public string? ExclusionReason { get; set; }
     }
@@ -331,8 +333,10 @@ namespace BAU_Plagiarism_System.Core.Services
             if (string.IsNullOrWhiteSpace(newText))
                 return new PlagiarismAnalysis();
 
-            string cleanedNewText = _processor.CleanDocument(newText);
-            var sourceSegments = _processor.SplitIntoSmartSegments(cleanedNewText);
+            // Lấy văn bản bài nộp (giữ nguyên tất cả, việc lọc sẽ dựa trên thuộc tính segment)
+            // excludeBibliography: false để không bị truncate mất phần cuối
+            string fullNewText = _processor.CleanDocument(newText, excludeBibliography: false); 
+            var sourceSegments = _processor.SplitIntoSmartSegments(fullNewText);
 
             var analysis = new PlagiarismAnalysis
             {
@@ -340,7 +344,9 @@ namespace BAU_Plagiarism_System.Core.Services
                 {
                     Text = s.RawText,
                     IsExcluded = s.IsExcluded,
-                    ExclusionReason = s.ExclusionReason
+                    ExclusionReason = s.ExclusionReason,
+                    IsBibliography = s.IsBibliography,
+                    IsQuote = s.IsQuote
                 }).ToList()
             };
 

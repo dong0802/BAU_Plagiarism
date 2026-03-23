@@ -101,6 +101,24 @@ namespace BAU_Plagiarism_System.Core.Services
             var segments = new List<TextSegment>();
             var delimiters = new[] { '.', '!', '?', '\n', '\r' };
             
+            // Tìm vị trí bắt đầu của danh mục tham khảo
+            int bibStart = -1;
+            int searchStart = (int)(text.Length * 0.7);
+            if (text.Length > searchStart)
+            {
+                string endPart = text.Substring(searchStart).ToLower();
+                foreach (var keyword in BibliographyKeywords)
+                {
+                    int index = endPart.LastIndexOf(keyword);
+                    if (index != -1)
+                    {
+                        int absoluteIndex = searchStart + index;
+                        if (bibStart == -1 || absoluteIndex > bibStart)
+                            bibStart = absoluteIndex;
+                    }
+                }
+            }
+
             int lastPos = 0;
             for (int i = 0; i < text.Length; i++)
             {
@@ -108,7 +126,6 @@ namespace BAU_Plagiarism_System.Core.Services
                 bool isForceSplit = (i - lastPos) > MAX_SEGMENT_CHARS;
                 bool isEnd = i == text.Length - 1;
 
-                // Tìm ranh giới đoạn văn/câu hoặc buộc cắt nếu quá dài
                 if (isDelimiter || isForceSplit || isEnd)
                 {
                     int length = i - lastPos + 1;
@@ -117,6 +134,14 @@ namespace BAU_Plagiarism_System.Core.Services
                     
                     var segment = new TextSegment { RawText = raw, CleanText = clean };
 
+                    // Kiểm tra xem đoạn này có thuộc phần bibliography không
+                    if (bibStart != -1 && lastPos >= bibStart)
+                    {
+                        segment.IsBibliography = true;
+                        segment.IsExcluded = true;
+                        segment.ExclusionReason = "Loại trừ Mục lục Tham khảo";
+                    }
+
                     if (string.IsNullOrWhiteSpace(clean))
                     {
                         segment.IsNoise = true;
@@ -124,10 +149,25 @@ namespace BAU_Plagiarism_System.Core.Services
                     else if (clean.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 3)
                     {
                         segment.IsNoise = true;
-                        segment.ExclusionReason = "Đoạn văn quá ngắn";
+                        if (string.IsNullOrEmpty(segment.ExclusionReason))
+                            segment.ExclusionReason = "Đoạn văn quá ngắn";
                     }
-                    else
+                    else if (!segment.IsBibliography) // Nếu không phải bib thì mới check common phrase và quote
                     {
+                        // Kiểm tra trích dẫn (Quotes)
+                        string trimmed = raw.Trim();
+                        bool isQuote = (trimmed.StartsWith("\"") && trimmed.EndsWith("\"")) ||
+                                        (trimmed.StartsWith("“") && trimmed.EndsWith("”")) ||
+                                        (trimmed.StartsWith("«") && trimmed.EndsWith("»")) ||
+                                        (trimmed.Count(c => c == '\"') >= 2 && trimmed.Length > 20);
+                        
+                        if (isQuote)
+                        {
+                            segment.IsQuote = true;
+                            // Lưu ý: Không tự động exclude ở backend để Frontend có thể toggle
+                            // Nhưng nếu muốn exclude mặc định thì set ở đây
+                        }
+
                         // Kiểm tra cụm từ thông dụng
                         foreach (var phrase in CommonPhrases)
                         {
@@ -218,6 +258,8 @@ namespace BAU_Plagiarism_System.Core.Services
         public string CleanText { get; set; } = "";
         public bool IsNoise { get; set; } = false;
         public bool IsCommonPhrase { get; set; } = false;
+        public bool IsBibliography { get; set; } = false;
+        public bool IsQuote { get; set; } = false;
         public bool IsExcluded { get; set; } = false;
         public string? ExclusionReason { get; set; }
     }

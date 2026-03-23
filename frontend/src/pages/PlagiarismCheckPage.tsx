@@ -92,11 +92,12 @@ const PlagiarismCheckPage: React.FC = () => {
             // Handle Quotes
             if (excludeQuotes) {
                 const trimmed = (seg.text || "").trim();
-                const isQuote = (trimmed.startsWith('"') && trimmed.endsWith('"')) || 
+                const isQuoteFrontend = (trimmed.startsWith('"') && trimmed.endsWith('"')) || 
                                (trimmed.startsWith('“') && trimmed.endsWith('”')) ||
                                (trimmed.startsWith('«') && trimmed.endsWith('»')) ||
                                (trimmed.includes('"') && trimmed.length > 20 && (trimmed.match(/"/g) || []).length >= 2);
-                if (isQuote) {
+                
+                if (seg.isQuote || isQuoteFrontend) {
                     isExcluded = true;
                     reason = 'Loại trừ trích dẫn';
                 }
@@ -322,6 +323,8 @@ const PlagiarismCheckPage: React.FC = () => {
                 matchedText: seg.matchedText,
                 isExcluded: seg.isExcluded,
                 exclusionReason: seg.exclusionReason,
+                isBibliography: seg.isBibliography,
+                isQuote: seg.isQuote,
                 severity: seg.score > 80 ? 'high' : (seg.score > 50 ? 'medium' : 'low') as 'high' | 'medium' | 'low'
             };
         });
@@ -1163,6 +1166,66 @@ const PlagiarismCheckPage: React.FC = () => {
                             </div>
                         </>
                     )}
+
+                    {sidePanelType === 'info' && (
+                        <>
+                            <div className="red-header" style={{ background: '#595959' }}>
+                                <span>Thông tin bài nộp</span>
+                                <CloseOutlined onClick={() => setSidePanelVisible(false)} style={{ cursor: 'pointer', fontSize: 14 }} />
+                            </div>
+                            <div className="panel-inner custom-scrollbar" style={{ padding: '24px 16px' }}>
+                                <div style={{ marginBottom: 32 }}>
+                                    <Text strong style={{ color: '#8c8c8c', textTransform: 'uppercase', fontSize: 12, display: 'block', marginBottom: 12 }}>
+                                        CHI TIẾT BÀI NỘP
+                                    </Text>
+                                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                                        <div style={{ paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+                                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Tên tệp:</Text>
+                                            <Text strong style={{ fontSize: 14, color: '#262626' }}>{pendingFileName || "Tài liệu không tên"}</Text>
+                                        </div>
+                                        <div style={{ paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+                                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>ID Bài nộp:</Text>
+                                            <Text copyable style={{ fontSize: 14, color: '#262626' }}>{sourceDocId || "BAU-" + new Date().getTime()}</Text>
+                                        </div>
+                                        <div style={{ paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+                                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Ngày kiểm tra:</Text>
+                                            <Text style={{ fontSize: 14, color: '#262626' }}>{checkInfo?.checkDate ? new Date(checkInfo.checkDate).toLocaleString('vi-VN') : new Date().toLocaleString('vi-VN')}</Text>
+                                        </div>
+                                        <div style={{ paddingBottom: 12 }}>
+                                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Người nộp:</Text>
+                                            <Text style={{ fontSize: 14, color: '#262626' }}>{checkInfo?.userName || "N/A"}</Text>
+                                        </div>
+                                    </Space>
+                                </div>
+
+                                <Divider style={{ margin: '24px 0' }} />
+
+                                <div>
+                                    <Text strong style={{ color: '#8c8c8c', textTransform: 'uppercase', fontSize: 12, display: 'block', marginBottom: 12 }}>
+                                        THÔNG SỐ VĂN BẢN
+                                    </Text>
+                                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Text type="secondary">Số lượng từ:</Text>
+                                            <Text strong>{fullText ? fullText.trim().split(/\s+/).length : 0}</Text>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Text type="secondary">Số lượng ký tự:</Text>
+                                            <Text strong>{fullText?.length || 0}</Text>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Text type="secondary">Số lượng đoạn văn:</Text>
+                                            <Text strong>{result?.detailedAnalysis?.segments?.length || 0}</Text>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Text type="secondary">Chỉ số trùng khớp:</Text>
+                                            <Tag color="#1890ff" style={{ margin: 0 }}>{result?.score?.toFixed(1) || 0}%</Tag>
+                                        </div>
+                                    </Space>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <div className="turnitin-vertical-tabs">
@@ -1196,7 +1259,17 @@ const PlagiarismCheckPage: React.FC = () => {
                     <div className="v-tab-item" onClick={() => window.print()}>
                         <DownloadOutlined style={{ fontSize: 22 }} />
                     </div>
-                    <div className="v-tab-item">
+                    <div 
+                        className={`v-tab-item ${sidePanelType === 'info' && sidePanelVisible ? 'active' : ''}`}
+                        onClick={() => {
+                            if (sidePanelType === 'info' && sidePanelVisible) {
+                                setSidePanelVisible(false);
+                            } else {
+                                setSidePanelVisible(true);
+                                setSidePanelType('info');
+                            }
+                        }}
+                    >
                         <InfoCircleOutlined style={{ fontSize: 22 }} />
                     </div>
                 </div>
