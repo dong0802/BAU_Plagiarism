@@ -52,17 +52,13 @@ namespace BAU_Plagiarism_System.Core.Services
     {
         private readonly TextProcessor _processor;
 
-        // ═══ TURNITIN-STYLE CONSTANTS ═══
-        /// <summary>
-        /// Số từ liên tiếp tối thiểu phải trùng khớp để tính là đạo văn.
-        /// Turnitin mặc định dùng khoảng 8 từ. Ta dùng 5 vì tiếng Việt ngắn hơn.
-        /// </summary>
+        // ═══════════════════════════════════════════════════════════════
+        // Bước 9: Tạo đặc trưng N-gram
+        // Số từ liên tiếp tối thiểu phải trùng = 5-gram (theo yêu cầu thầy)
+        // Turnitin dùng ~8 từ; tiếng Việt ngắn hơn nên dùng 5.
+        // ═══════════════════════════════════════════════════════════════
         private const int MIN_MATCH_WORDS = 5;
-        
-        /// <summary>
-        /// Sau khi tìm thấy chuỗi trùng khớp MIN_MATCH_WORDS từ, 
-        /// hệ thống sẽ mở rộng sang các từ tiếp theo nếu chúng cũng khớp.
-        /// </summary>
+
         private const int NGRAM_SIZE = 3; // Giữ cho legacy API
 
         public SimilarityChecker()
@@ -154,7 +150,12 @@ namespace BAU_Plagiarism_System.Core.Services
 
         // ─── Core: Turnitin-style exact string matching ─────────────────────────
 
+        // ─── Bước 11 & 12: Tra cứu CSDL + So khớp nội dung ─────────────────────
+
         /// <summary>
+        /// Bước 11: Tra cứu hash trong Inverted Index → lấy danh sách tài liệu trùng
+        /// Bước 12: So sánh các hash → ghi nhận vị trí trùng
+        /// Bước 13: Gom nhóm các đoạn trùng liền kề
         /// So sánh bài nộp với database - KIỂU TURNITIN.
         /// Tìm chuỗi từ liên tiếp (≥ MIN_MATCH_WORDS từ) trùng khớp chính xác.
         /// </summary>
@@ -170,6 +171,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 var segNormalized = _processor.NormalizeText(seg.Text);
                 var segWords = segNormalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
+                // Bước 14: Lọc nhiễu - đoạn quá ngắn không so sánh
                 if (segWords.Length < MIN_MATCH_WORDS) continue;
 
                 double bestScore = seg.Score;
@@ -181,7 +183,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 {
                     if (dbDoc.Words.Length < MIN_MATCH_WORDS) continue;
 
-                    // Tìm chuỗi trùng khớp dài nhất giữa segment và tài liệu DB
+                    // Bước 11: Tra cứu hash, Bước 12: So khớp, Bước 13: Gom nhóm
                     var matchResult = FindLongestExactMatch(segWords, dbDoc);
 
                     if (matchResult.matchedWordCount > 0)
@@ -355,17 +357,17 @@ namespace BAU_Plagiarism_System.Core.Services
             return analysis;
         }
 
+        // ─── Bước 16: Tính toán tỷ lệ đạo văn tổng thể ─────────────────────────
+
         /// <summary>
-        /// Tính điểm tổng thể kiểu Turnitin:
-        /// Score = (tổng từ trùng khớp / tổng từ bài nộp) × 100
-        /// 
-        /// Một segment được tính là "trùng khớp" nếu có score > 0 
-        /// (tức là đã tìm thấy ≥ MIN_MATCH_WORDS từ liên tiếp giống nhau).
+        /// Bước 15: Áp dụng ngưỡng 1% - chỉ giữ nguồn có mức trùng ≥ 1%
+        /// Bước 16: Tính toán tỷ lệ đạo văn = tổng từ trùng (không trùng lặp) / tổng từ × 100
         /// </summary>
         public void CalculateOverallScore(PlagiarismAnalysis analysis)
         {
             int totalWords = 0;
-            int totalMatchedWords = 0;
+            // Dùng Dictionary để theo dõi số từ trùng theo từng nguồn (Bước 15: ngưỡng 1%)
+            var matchedWordsBySource = new Dictionary<int, int>();
 
             foreach (var seg in analysis.Segments)
             {
@@ -374,17 +376,27 @@ namespace BAU_Plagiarism_System.Core.Services
                 var words = seg.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
                 totalWords += words;
 
-                // Turnitin-style: nếu segment có score > 0 (đã tìm thấy chuỗi trùng),
-                // tính số từ thực sự trùng = words × score / 100
                 if (seg.Score > 0 && seg.SourceId.HasValue)
                 {
                     int matchedInSeg = (int)Math.Round(words * seg.Score / 100.0);
-                    totalMatchedWords += matchedInSeg;
+                    if (!matchedWordsBySource.ContainsKey(seg.SourceId.Value))
+                        matchedWordsBySource[seg.SourceId.Value] = 0;
+                    matchedWordsBySource[seg.SourceId.Value] += matchedInSeg;
                 }
             }
 
+            // Bước 15: Áp dụng ngưỡng 1% - loại bỏ nguồn có % trùng dưới 1%
+            int finalMatchedWords = 0;
+            foreach (var kvp in matchedWordsBySource)
+            {
+                double sourcePercent = totalWords > 0 ? (double)kvp.Value / totalWords * 100 : 0;
+                if (sourcePercent >= 1.0) // Ngưỡng = 1% theo yêu cầu
+                    finalMatchedWords += kvp.Value;
+            }
+
+            // Bước 16: Tính tỷ lệ đạo văn cuối cùng
             analysis.OverallScore = totalWords > 0
-                ? Math.Round((double)totalMatchedWords / totalWords * 100, 2)
+                ? Math.Round((double)finalMatchedWords / totalWords * 100, 2)
                 : 0;
         }
 

@@ -15,20 +15,17 @@ namespace BAU_Plagiarism_System.Core.Services
         private readonly BAUDbContext _context;
         private readonly TextProcessor _textProcessor;
         private readonly SimilarityChecker _similarityChecker;
-        private readonly AiDetectionService _aiDetectionService;
         private readonly IBackgroundJobClient _backgroundJobs;
 
         public PlagiarismService(
             BAUDbContext context, 
             TextProcessor textProcessor, 
             SimilarityChecker similarityChecker,
-            AiDetectionService aiDetectionService,
             IBackgroundJobClient backgroundJobs)
         {
             _context = context;
             _textProcessor = textProcessor;
             _similarityChecker = similarityChecker;
-            _aiDetectionService = aiDetectionService;
             _backgroundJobs = backgroundJobs;
         }
 
@@ -55,13 +52,6 @@ namespace BAU_Plagiarism_System.Core.Services
                 user.LastCheckResetDate = DateTime.Now;
             }
 
-            // Tạm thời bỏ giới hạn cho sinh viên theo yêu cầu
-            /*
-            if (user.Role == "Student" && user.ChecksUsedToday >= user.DailyCheckLimit)
-            {
-                throw new Exception($"Bạn đã hết lượt kiểm tra trong ngày hôm nay (Tối đa {user.DailyCheckLimit} lượt/ngày).");
-            }
-            */
 
             // Tăng số lượt kiểm tra
             user.ChecksUsedToday++;
@@ -150,52 +140,21 @@ namespace BAU_Plagiarism_System.Core.Services
                     
                     // Giải phóng bộ nhớ batch ngay lập tức
                     batchDocs.Clear();
+
+                    // Cực kỳ quan trọng: Nhường CPU cho các tiến trình khác (như SQL Server) để chống lỗi Timeout khi tải file nén/văn bản
+                    await Task.Delay(100);
                 }
 
-                // Tính toán điểm tổng kết cuối cùng sau khi đã quét hết các batch
-                int totalWords = 0;
-                var sourceMatchedWords = new Dictionary<int, int>();
-
-                foreach(var seg in analysis.Segments)
-                {
-                    if (seg.IsExcluded || string.IsNullOrWhiteSpace(seg.Text)) continue;
-                    
-                    var words = seg.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-                    totalWords += words;
-                    
-                    // Nhóm các trùng lặp theo SourceId
-                    if (seg.Score > 40 && seg.SourceId.HasValue) 
-                    {
-                        if (!sourceMatchedWords.ContainsKey(seg.SourceId.Value))
-                            sourceMatchedWords[seg.SourceId.Value] = 0;
-                        sourceMatchedWords[seg.SourceId.Value] += words;
-                    }
-                }
-
-                int finalMatchedWords = 0;
-                // Nếu phần trăm đạo văn của một nguồn dưới quy định (1%) thì không cộng vào tổng
-                // Còn quá thì cộng vào
-                foreach(var kvp in sourceMatchedWords)
-                {
-                    double sourcePercent = totalWords > 0 ? ((double)kvp.Value / totalWords) * 100 : 0;
-                    if (sourcePercent >= 1.0) // Ngưỡng quy định = 1%
-                    {
-                        finalMatchedWords += kvp.Value;
-                    }
-                }
-
-                analysis.OverallScore = totalWords > 0 ? Math.Round((double)finalMatchedWords / totalWords * 100, 2) : 0;
+                // Bước 16: Tính toán tỷ lệ đạo văn tổng thể sau khi đã quét hết các batch
+                // (Bước 15: ngưỡng 1% được xử lý bên trong CalculateOverallScore)
+                Console.WriteLine("[PLAGIARISM-BG] Step 3: Calculating overall score (with 1% threshold)...");
+                _similarityChecker.CalculateOverallScore(analysis);
 
                 sw.Stop();
                 var detailedResult = analysis;
                 Console.WriteLine($"[PLAGIARISM-BG] Similarity analysis completed in {sw.ElapsedMilliseconds}ms. Final overall score: {detailedResult.OverallScore}");
                 
-                // 2. Phát hiện AI
-                Console.WriteLine("[PLAGIARISM-BG] Step 3: Running AI detection...");
-                sw.Restart();
-                var aiResult = await _aiDetectionService.DetectAiAsync(check.SourceDocument!.Content ?? string.Empty);
-                sw.Stop();
-                Console.WriteLine($"[PLAGIARISM-BG] AI detection completed in {sw.ElapsedMilliseconds}ms. AI Probability: {aiResult.AiProbability}");
+
 
                 // 3. Lưu các phần trùng khớp
                 Console.WriteLine("[PLAGIARISM-BG] Step 4: Saving matches...");
@@ -224,9 +183,6 @@ namespace BAU_Plagiarism_System.Core.Services
                 // Cập nhật kết quả kiểm tra
                 check.OverallSimilarityPercentage = (decimal)detailedResult.OverallScore;
                 check.TotalMatchedDocuments = matches.Select(m => m.MatchedDocumentId).Distinct().Count();
-                check.AiProbability = (decimal)aiResult.AiProbability;
-                check.AiDetectionLevel = aiResult.DetectionLevel;
-                check.AiDetectionJson = JsonSerializer.Serialize(aiResult);
                 check.Status = "Completed";
 
                 Console.WriteLine("[PLAGIARISM-BG] Step 5: Saving to DB...");
@@ -307,6 +263,23 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (check == null) return null;
 
+            if (check.Status != "Completed")
+            {
+                return new PlagiarismCheckDto
+                {
+                    Id = check.Id,
+                    SourceDocumentId = check.SourceDocumentId,
+                    SourceDocumentTitle = check.SourceDocument.Title,
+                    UserId = check.UserId,
+                    UserName = check.User.FullName,
+                    CheckDate = check.CheckDate,
+                    OverallSimilarityPercentage = check.OverallSimilarityPercentage,
+                    Status = check.Status,
+                    TotalMatchedDocuments = check.TotalMatchedDocuments,
+                    Notes = check.Notes
+                };
+            }
+
             // Đảm bảo không tải toàn bộ database khi lấy chi tiết
             var matchedDocs = check.Matches
                 .Where(m => m.MatchedDocument != null)
@@ -343,11 +316,7 @@ namespace BAU_Plagiarism_System.Core.Services
                         ExclusionReason = s.ExclusionReason
                     }).ToList()
                 },
-                AiProbability = check.AiProbability,
-                AiDetectionLevel = check.AiDetectionLevel,
-                AiAnalysis = string.IsNullOrEmpty(check.AiDetectionJson) 
-                    ? null 
-                    : JsonSerializer.Deserialize<AiDetectionResultDto>(check.AiDetectionJson),
+
                 Matches = check.Matches.Select(m => new PlagiarismMatchDto
                 {
                     Id = m.Id,
