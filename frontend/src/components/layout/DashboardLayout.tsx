@@ -76,7 +76,7 @@ const DashboardLayout: React.FC = () => {
                     }}>
                         B
                     </div>
-                    {!collapsed && <span style={{ marginLeft: 12, fontWeight: 700, fontSize: 16, color: '#003a8c' }}>BAV PLAGIARISM</span>}
+                    {!collapsed && <span style={{ marginLeft: 12, fontWeight: 700, fontSize: 16, color: '#003a8c' }}>BAU PLAGIARISM</span>}
                 </div>
                 <Menu
                     theme="light"
@@ -114,7 +114,7 @@ const DashboardLayout: React.FC = () => {
                 />
             </Sider>
             <Layout>
-                <Header className="bav-header">
+                <Header className="bau-header">
                     <Button
                         type="text"
                         icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}

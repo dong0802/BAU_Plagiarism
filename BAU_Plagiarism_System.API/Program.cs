@@ -81,6 +81,7 @@ try
 
     // Register Infrastructure Services
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddHttpClient(); // For WebSearchService
 
     // Register Business Services
     builder.Services.AddScoped<SimilarityChecker>();
@@ -100,6 +101,7 @@ try
     builder.Services.AddScoped<ImportService>();
     builder.Services.AddScoped<AiDetectionService>();
     builder.Services.AddScoped<DocumentQualityService>();
+    builder.Services.AddScoped<WebSearchService>();
 
     // Thêm cấu hình Hangfire
     builder.Services.AddHangfire(configuration => configuration

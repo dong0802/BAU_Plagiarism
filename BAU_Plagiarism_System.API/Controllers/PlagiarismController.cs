@@ -12,12 +12,10 @@ namespace BAU_Plagiarism_System.API.Controllers
     public class PlagiarismController : ControllerBase
     {
         private readonly PlagiarismService _plagiarismService;
-        private readonly BAU_Plagiarism_System.Data.BAUDbContext _context;
 
-        public PlagiarismController(PlagiarismService plagiarismService, BAU_Plagiarism_System.Data.BAUDbContext context)
+        public PlagiarismController(PlagiarismService plagiarismService)
         {
             _plagiarismService = plagiarismService;
-            _context = context;
         }
 
         /// <summary>
@@ -36,40 +34,6 @@ namespace BAU_Plagiarism_System.API.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
-        }
-
-        public class CompareTwoDto 
-        {
-            public int Document1Id { get; set; }
-            public int Document2Id { get; set; }
-        }
-
-        /// <summary>
-        /// So sánh trực tiếp 2 tài liệu với nhau (1v1)
-        /// </summary>
-        [HttpPost("compare-1v1")]
-        public async Task<ActionResult> Compare1v1([FromBody] CompareTwoDto dto)
-        {
-            var doc1 = await _context.Documents.FindAsync(dto.Document1Id);
-            var doc2 = await _context.Documents.FindAsync(dto.Document2Id);
-            if (doc1 == null || doc2 == null) return NotFound("Không tìm thấy một trong hai tài liệu.");
-
-            var checker = this.HttpContext.RequestServices.GetRequiredService<SimilarityChecker>();
-            var result = checker.AnalyzeDetailed(doc1.Content ?? "", new List<BAU_Plagiarism_System.Data.Models.Document> { doc2 });
-
-            var matches = result.Segments
-                .Where(s => s.Score > 0 && !s.IsExcluded && !string.IsNullOrEmpty(s.MatchedText))
-                .Select(s => new { matchedText = s.MatchedText })
-                .ToList();
-
-            return Ok(new
-            {
-                SourceTitle = doc1.Title,
-                TargetTitle = doc2.Title,
-                OverallScore = result.OverallScore,
-                Matches = matches,
-                Segments = result.Segments
-            });
         }
 
         /// <summary>

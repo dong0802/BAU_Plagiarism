@@ -64,4 +64,20 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int Position { get; set; }
     }
 
+    public class WebSearchResultDto
+    {
+        public string Query { get; set; } = string.Empty;
+        public List<WebSourceDto> Sources { get; set; } = new();
+        public int TotalMatches { get; set; }
+        public DateTime SearchDate { get; set; } = DateTime.Now;
+    }
+
+    public class WebSourceDto
+    {
+        public string Title { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public string Snippet { get; set; } = string.Empty;
+        public double SimilarityScore { get; set; }
+        public string SourceType { get; set; } = "Web"; // Web, Wikipedia, Journal, News
+    }
 }

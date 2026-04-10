@@ -81,7 +81,7 @@ const LoginPage: React.FC = () => {
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             margin: '0 auto 15px', color: 'white', fontSize: 24, fontWeight: 'bold'
                         }}>
-                            BAV
+                            BAU
                         </div>
                         <Title level={3} style={{ margin: 0 }}>HỆ THỐNG ĐẠO VĂN</Title>
                         <Text type="secondary">Học viện Ngân hàng</Text>
