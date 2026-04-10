@@ -62,6 +62,10 @@ const plagiarismApi = {
     // Lấy danh sách các tài liệu có độ trùng lặp cao
     getHighRisk: (threshold: number = 50, limit: number = 10): Promise<any[]> => {
         return axiosClient.get('/plagiarism/high-risk', { params: { threshold, limit } });
+    },
+    // So sánh trực tiếp 2 tài liệu
+    compare1v1: (data: { document1Id: number, document2Id: number }): Promise<any> => {
+        return axiosClient.post('/plagiarism/compare-1v1', data);
     }
 };
 

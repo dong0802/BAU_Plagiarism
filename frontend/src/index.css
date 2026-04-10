@@ -1,6 +1,6 @@
 :root {
   --primary-color: #003a8c;
-  /* Blue từ logo BAU */
+  /* Blue từ logo BAV */
   --secondary-color: #fa8c16;
   /* Orange tinh tế */
   --accent-color: #1890ff;
@@ -143,7 +143,7 @@ h4,
   border-radius: 8px !important;
 }
 
-.bau-header {
+.bav-header {
   height: 70px;
   padding: 0 24px;
   display: flex;
@@ -158,7 +158,7 @@ h4,
 }
 
 @media (max-width: 768px) {
-  .bau-header {
+  .bav-header {
     padding: 0 16px;
   }
 }

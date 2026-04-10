@@ -104,11 +104,23 @@ namespace BAU_Plagiarism_System.Core.Services
             // ═══ TURNITIN-STYLE: Word-level index ═══
             // Tách toàn bộ tài liệu thành mảng từ
             var normalizedFull = _processor.NormalizeText(doc.Content ?? "");
-            indexed.Words = normalizedFull.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var tempWords = normalizedFull.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var tempRawWords = ExtractRawWords(doc.Content ?? "");
 
-            // Lưu raw words tương ứng (để trả lại text gốc cho frontend)
-            var rawWords = ExtractRawWords(doc.Content ?? "");
-            indexed.RawWords = rawWords;
+            var filteredWords = new List<string>();
+            var filteredRawWords = new List<string>();
+            int minLen = Math.Min(tempWords.Length, tempRawWords.Length);
+            for (int i = 0; i < minLen; i++)
+            {
+                if (!_processor.IsStopWord(tempWords[i]))
+                {
+                    filteredWords.Add(tempWords[i]);
+                    filteredRawWords.Add(tempRawWords[i]);
+                }
+            }
+
+            indexed.Words = filteredWords.ToArray();
+            indexed.RawWords = filteredRawWords.ToArray();
 
             // Build sequence hash index: với mỗi vị trí i, hash MIN_MATCH_WORDS từ liên tiếp
             indexed.WordSequenceIndex = new Dictionary<ulong, List<int>>();
@@ -168,7 +180,9 @@ namespace BAU_Plagiarism_System.Core.Services
 
                 // Normalize segment text thành mảng từ
                 var segNormalized = _processor.NormalizeText(seg.Text);
-                var segWords = segNormalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var segWords = segNormalized.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                                            .Where(w => !_processor.IsStopWord(w))
+                                            .ToArray();
 
                 if (segWords.Length < MIN_MATCH_WORDS) continue;
 
@@ -403,7 +417,9 @@ namespace BAU_Plagiarism_System.Core.Services
             
             foreach (char c in text)
             {
-                if (char.IsLetterOrDigit(c) || c == '-' || c == '\'')
+                // Thay vì giữ '-', '\'' khác với NormalizeText, ta xét đúng ký tự chữ và số
+                // để đảm bảo mảng Words và RawWords luôn có số lượng tương đương ánh xạ 1:1
+                if (char.IsLetterOrDigit(c))
                 {
                     sb.Append(c);
                 }

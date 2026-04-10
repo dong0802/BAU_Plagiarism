@@ -45,20 +45,7 @@ export interface QualityIssue {
     position: number;
 }
 
-export interface WebSearchResult {
-    query: string;
-    sources: WebSource[];
-    totalMatches: number;
-    searchDate: string;
-}
 
-export interface WebSource {
-    title: string;
-    url: string;
-    snippet: string;
-    similarityScore: number;
-    sourceType: string;
-}
 
 const qualityApi = {
     // Phân tích chất lượng tài liệu đã lưu bằng ID

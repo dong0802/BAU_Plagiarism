@@ -21,6 +21,16 @@ namespace BAU_Plagiarism_System.Core.Services
             "trí tuệ nhân tạo", "trong nông nghiệp", "đối với sự phát triển"
         };
 
+        private static readonly HashSet<string> StopWords = new HashSet<string>
+        {
+            "bị", "bởi", "cả", "các", "cái", "cần", "càng", "chỉ", "chiếc", "cho", "chứ", "chưa", "chuyện", 
+            "có", "cứ", "của", "cùng", "cũng", "đã", "đang", "đây", "để", "đều", "điều", 
+            "do", "đó", "được", "dưới", "gì", "khi", "không", "là", "lại", "lên", "lúc", "mà", "mỗi", 
+            "này", "nên", "nếu", "ngay", "nhiều", "như", "nhưng", "những", "nơi", "nữa", "phải", "qua", "ra", 
+            "rằng", "rất", "rồi", "sau", "sẽ", "so", "sự", "tại", "theo", "thì", "trên", "trước", "từ", "từng", 
+            "và", "vẫn", "vào", "vậy", "vì", "việc", "với", "vừa"
+        };
+
         public string NormalizeText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return string.Empty;
@@ -61,6 +71,11 @@ namespace BAU_Plagiarism_System.Core.Services
         public string Process(string text)
         {
             return NormalizeText(text);
+        }
+
+        public bool IsStopWord(string word)
+        {
+            return StopWords.Contains(word.ToLowerInvariant());
         }
 
         public string CleanDocument(string text, bool excludeBibliography = true)
@@ -161,11 +176,29 @@ namespace BAU_Plagiarism_System.Core.Services
                                         (trimmed.StartsWith("«") && trimmed.EndsWith("»")) ||
                                         (trimmed.Count(c => c == '\"') >= 2 && trimmed.Length > 20);
                         
-                        if (isQuote)
+                        // Bước 5: Nhận diện trích dẫn APA
+                        var apaRegex1 = new Regex(@"\([\p{L}\s\.\,]+,\s\d{4}[a-z]?\)"); // VD: (Nguyen Van A, 2020)
+                        var apaRegex2 = new Regex(@"\p{L}[\p{L}\s\.]*\(\d{4}[a-z]?\)"); // VD: Nguyen Van A (2020)
+
+                        bool hasApa = apaRegex1.IsMatch(raw) || apaRegex2.IsMatch(raw);
+
+                        if (isQuote && hasApa)
                         {
                             segment.IsQuote = true;
-                            // Lưu ý: Không tự động exclude ở backend để Frontend có thể toggle
-                            // Nhưng nếu muốn exclude mặc định thì set ở đây
+                            segment.IsExcluded = true;
+                            segment.ExclusionReason = "Trích dẫn nguyên văn chuẩn APA";
+                        }
+                        else if (hasApa)
+                        {
+                            // Xóa phần citation khỏi CleanText (Chuẩn hóa câu bằng cách loại bỏ ngoặc chứa năm)
+                            string processedRaw = apaRegex1.Replace(raw, " ");
+                            processedRaw = Regex.Replace(processedRaw, @"\p{L}[\p{L}\s\.]*\(\d{4}[a-z]?\)", " ");
+                            clean = NormalizeText(processedRaw);
+                            segment.CleanText = clean;
+                        }
+                        else if (isQuote)
+                        {
+                            segment.IsQuote = true;
                         }
 
                         // Kiểm tra cụm từ thông dụng
@@ -224,7 +257,7 @@ namespace BAU_Plagiarism_System.Core.Services
         {
             if (string.IsNullOrEmpty(text)) return new HashSet<string>();
             
-            var words = Tokenize(NormalizeText(text));
+            var words = Tokenize(NormalizeText(text)).Where(w => !IsStopWord(w)).ToList();
             var nGrams = new HashSet<string>();
 
             if (words.Count < n) return nGrams;
