@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message, Space, Select } from 'antd';
+import { Form, Input, Button, Card, Typography, message, Space } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, ArrowLeftOutlined, IdcardOutlined } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
 import axiosClient from '../api/axiosClient';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
+
 
 const RegisterPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ const RegisterPage: React.FC = () => {
     const onFinish = async (values: any) => {
         setLoading(true);
         try {
-            await axiosClient.post('/auth/register', values);
+            await axiosClient.post('/auth/register', { ...values, role: 'Student' });
             message.success('Đăng ký tài khoản thành công! Vui lòng đăng nhập.');
             navigate('/login');
         } catch (error: any) {
@@ -47,10 +47,10 @@ const RegisterPage: React.FC = () => {
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             margin: '0 auto 15px', color: 'white', fontSize: 24, fontWeight: 'bold'
                         }}>
-                            BAU
+                            BAV
                         </div>
                         <Title level={2} style={{ margin: 0 }}>ĐĂNG KÝ TÀI KHOẢN</Title>
-                        <Text type="secondary">Tham gia hệ thống kiểm tra đạo văn BAU</Text>
+                        <Text type="secondary">Tham gia hệ thống kiểm tra đạo văn BAV</Text>
                     </div>
 
                     <Form
@@ -98,16 +98,7 @@ const RegisterPage: React.FC = () => {
                             <Input.Password prefix={<LockOutlined />} placeholder="Mật khẩu" />
                         </Form.Item>
 
-                        <Form.Item
-                            name="role"
-                            label="Bạn là?"
-                            rules={[{ required: true }]}
-                        >
-                            <Select placeholder="Chọn vai trò">
-                                <Option value="Student">Sinh viên</Option>
-                                <Option value="Admin">Giảng viên / Quản trị viên</Option>
-                            </Select>
-                        </Form.Item>
+
 
                         <Form.Item>
                             <Button type="primary" htmlType="submit" block loading={loading} style={{ height: 48, borderRadius: 8, fontWeight: 'bold' }}>
