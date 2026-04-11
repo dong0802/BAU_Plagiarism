@@ -28,6 +28,177 @@ interface IPlagiarismMatch {
     author?: string;
 }
 
+    const SourceComparisonBox: React.FC<{ match: IPlagiarismMatch, onClose: () => void }> = ({ match, onClose }) => {
+        const [sourceContent, setSourceContent] = useState<string | null>(match.fullContent || null);
+        const [loading, setLoading] = useState(!match.fullContent && !!match.matchedDocumentId);
+        const contentRef = useRef<HTMLDivElement>(null);
+
+        // Tránh scroll lại mỗi khi bộ lọc thay đổi gây re-render
+        const hasScrolled = useRef(false);
+
+        useEffect(() => {
+            if (!match.fullContent && match.matchedDocumentId) {
+                setLoading(true);
+                hasScrolled.current = false; // Reset khi load tài liệu mới
+                documentApi.getContent(match.matchedDocumentId)
+                    .then(res => setSourceContent(res.content))
+                    .catch(e => console.error("Failed to fetch source content:", e))
+                    .finally(() => setLoading(false));
+            } else {
+                setSourceContent(match.fullContent || null);
+                setLoading(false);
+            }
+        }, [match.matchedDocumentId, match.fullContent]);
+
+        useEffect(() => {
+            // Chỉ scroll nếu chưa scroll lần nào (lần đầu load xong)
+            if (!loading && sourceContent && !hasScrolled.current) {
+                const timer = setTimeout(() => {
+                    const activeElem = contentRef.current?.querySelector('.highlight-active');
+                    if (activeElem) {
+                        activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        hasScrolled.current = true; // Đánh dấu đã scroll, không scroll lại
+                    }
+                }, 300);
+                return () => clearTimeout(timer);
+            }
+        }, [loading, sourceContent]);
+
+        const renderHighlightedSource = (text: string) => {
+            if (!text) return null;
+            const activeSnippet = (match.text || "").trim();
+            const otherSnippets = (match.allSnippets || []).map(s => s.trim()).filter(s => s && s !== activeSnippet && s.length > 8);
+            // 1-to-1 character folding to preserve indices while allowing accent-insensitive search
+            const foldChar = (c: string) => {
+                const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd');
+                return f.length > 0 ? f[0] : c;
+            };
+
+            const foldedText = text.split('').map(foldChar).join('').toLowerCase();
+            const markers = new Uint8Array(text.length);
+
+            const markSnippet = (snippet: string, markerType: number) => {
+                if (!snippet || snippet.length < 4) return;
+
+                // Fold the snippet as well for comparison
+                const normSnippet = snippet.split('').map(foldChar).join('').toLowerCase().trim();
+
+                try {
+                    // Create pattern: escaping special chars and allowing any non-alphanumeric characters (like punctuation, spaces, newlines) between words.
+                    // This is crucial because backend's exact-match text strips punctuation, but the rendering text still has them!
+                    const pattern = normSnippet
+                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                        .replace(/\s+/g, '[^a-z0-9A-Z_]+');
+
+                    const regex = new RegExp(pattern, 'gi');
+                    let matchResult;
+
+                    // Search in the FOLDED text which has identical length to original
+                    while ((matchResult = regex.exec(foldedText)) !== null) {
+                        const start = matchResult.index;
+                        const end = start + matchResult[0].length;
+                        for (let i = start; i < end; i++) {
+                            // Active (1) overrules Secondary (2)
+                            if (markers[i] === 0 || (markerType === 1)) markers[i] = markerType;
+                        }
+                        if (regex.lastIndex === start) regex.lastIndex++;
+                    }
+                } catch (e) {
+                    console.error("Marker Regex error:", e);
+                }
+            };
+            otherSnippets.forEach(s => markSnippet(s, 2));
+            if (activeSnippet) markSnippet(activeSnippet, 1);
+
+            const elements: React.ReactNode[] = [];
+            let i = 0, key = 0;
+            while (i < text.length) {
+                const currentType = markers[i];
+                let j = i + 1;
+                while (j < text.length && markers[j] === currentType) j++;
+                const chunk = text.substring(i, j);
+                if (currentType === 1) elements.push(<mark key={key++} className="highlight-active" style={{ background: '#bae7ff', color: '#003a8c', borderRadius: 3, padding: '1px 0', fontWeight: 600, boxShadow: '0 0 0 1px #69c0ff' }}>{chunk}</mark>);
+                else if (currentType === 2) elements.push(<mark key={key++} className="highlight-secondary" style={{ background: '#fff1b8', color: '#613400', borderRadius: 3, padding: '1px 0', boxShadow: '0 0 0 1px #ffd666' }}>{chunk}</mark>);
+                else {
+                    elements.push(<span key={key++}>{chunk}</span>);
+                }
+                i = j;
+            }
+            return elements;
+        };
+
+        return (
+            <Card
+                className="comparison-source-panel animate-fade-in glass-card"
+                style={{ position: 'sticky', top: 20, border: '1px solid #bae7ff' }}
+                title={
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Space>
+                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1890ff' }}></div>
+                            <Text strong style={{ color: '#003a8c' }}>TÀI LIỆU ĐỐI SOÁT CHI TIẾT</Text>
+                        </Space>
+                        <Button
+                            type="primary"
+                            danger
+                            ghost
+                            size="small"
+                            icon={<CloseOutlined />}
+                            onClick={onClose}
+                        >
+                            Đóng
+                        </Button>
+                    </div>
+                }
+                headStyle={{ background: '#f0f7ff', borderBottom: '1px solid #bae7ff' }}
+                bodyStyle={{ padding: 16 }}
+            >
+                <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 15, background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e6f7ff' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <Title level={5} style={{ color: '#003a8c', marginBottom: 4, fontSize: 14, wordBreak: 'break-word' }}>{match.source}</Title>
+                            <Space split={<Divider type="vertical" />}>
+                                {match.author && <Text type="secondary" style={{ fontSize: 11 }}><UserOutlined /> {match.author}</Text>}
+                                <Tag color="blue" icon={<FileSearchOutlined />} style={{ fontSize: 10 }}>Đang so khớp</Tag>
+                            </Space>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <Statistic title="Góp mặt" value={match.similarity} suffix="%" valueStyle={{ color: '#1890ff', fontSize: 20, fontWeight: 'bold' }} />
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    className="custom-scrollbar"
+                    ref={contentRef}
+                    style={{
+                        height: 'calc(100vh - 400px)',
+                        minHeight: 400,
+                        padding: '24px',
+                        background: '#f8fafc',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8
+                    }}
+                >
+                    <div style={{ lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', fontFamily: '"Merriweather", serif', fontSize: 15, color: '#334155', textAlign: 'justify' }}>
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '100px 0' }}>
+                                <Spin tip="Đang tải dữ liệu nguồn..." />
+                            </div>
+                        ) : renderHighlightedSource(sourceContent || "")}
+                    </div>
+                </div>
+
+                <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    <Tag color="blue" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Đang chọn</Tag>
+                    <Tag color="orange" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Trùng lặp khác</Tag>
+                </div>
+            </Card>
+        );
+    };
+
+
 const PlagiarismCheckPage: React.FC = () => {
     const { user } = useSelector((state: RootState) => state.auth);
     const dispatch = useDispatch();
@@ -45,12 +216,11 @@ const PlagiarismCheckPage: React.FC = () => {
     const [progress, setProgress] = useState(0);
     const [loadingStatus, setLoadingStatus] = useState("Đang khởi tạo...");
     const [checkInfo, setCheckInfo] = useState<any>(null);
-    const [isAiModalVisible, setIsAiModalVisible] = useState(false);
     const [inputType, setInputType] = useState<'file' | 'text'>('file');
     const [pastedText, setPastedText] = useState("");
     const [qualityAnalysis, setQualityAnalysis] = useState<DocumentQualityAnalysis | null>(null);
     const [isQualityModalVisible, setIsQualityModalVisible] = useState(false);
-    
+
     // Turnitin-style Sidebar & Filtering states
     const [sidePanelVisible, setSidePanelVisible] = useState(false);
     const [sidePanelType, setSidePanelType] = useState<'matches' | 'filters' | 'info' | 'none'>('matches');
@@ -76,7 +246,7 @@ const PlagiarismCheckPage: React.FC = () => {
 
         // Start with a clone of segments
         let currentSegments = [...result.detailedAnalysis.segments];
-        
+
         // 1. Mark segments for exclusion based on UI toggles (Quotes, Bibliography)
         currentSegments = currentSegments.map(seg => {
             let isExcluded = false;
@@ -92,11 +262,11 @@ const PlagiarismCheckPage: React.FC = () => {
             // Handle Quotes
             if (excludeQuotes) {
                 const trimmed = (seg.text || "").trim();
-                const isQuoteFrontend = (trimmed.startsWith('"') && trimmed.endsWith('"')) || 
-                               (trimmed.startsWith('“') && trimmed.endsWith('”')) ||
-                               (trimmed.startsWith('«') && trimmed.endsWith('»')) ||
-                               (trimmed.includes('"') && trimmed.length > 20 && (trimmed.match(/"/g) || []).length >= 2);
-                
+                const isQuoteFrontend = (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+                    (trimmed.startsWith('“') && trimmed.endsWith('”')) ||
+                    (trimmed.startsWith('«') && trimmed.endsWith('»')) ||
+                    (trimmed.includes('"') && trimmed.length > 20 && (trimmed.match(/"/g) || []).length >= 2);
+
                 if (seg.isQuote || isQuoteFrontend) {
                     isExcluded = true;
                     reason = 'Loại trừ trích dẫn';
@@ -118,19 +288,19 @@ const PlagiarismCheckPage: React.FC = () => {
 
         currentSegments.forEach(seg => {
             const wordCount = seg.text ? seg.text.trim().split(/\s+/).filter((w: string) => w.length > 0).length : 0;
-            
+
             // Standard Turnitin logic: 
             // - Bibliography is excluded from the total word count of the document IF the toggle is on.
             // - Quotes are included in the total word count but not the similarity sum if toggle is on.
             const shouldExcludeFromTotalCount = excludeBibliography && (seg.exclusionReason === 'Loại trừ Mục lục Tham khảo' || seg.isBibliography);
-            
+
             if (!shouldExcludeFromTotalCount) {
                 totalCountableDocWords += wordCount;
             }
 
             // Only count as a "match" for a source if not excluded AND has actual matching
             // Turnitin-style: score > 0 means exact word sequences were found
-            if (!seg.isExcluded && seg.source && seg.score > 0) { 
+            if (!seg.isExcluded && seg.source && seg.score > 0) {
                 sourceWordCounts[seg.source] = (sourceWordCounts[seg.source] || 0) + wordCount;
             }
         });
@@ -144,7 +314,7 @@ const PlagiarismCheckPage: React.FC = () => {
         let currentMatches = result.matches.map((m: any) => {
             const matchedWords = sourceWordCounts[m.source] || 0;
             const similarity = totalCountableDocWords > 0 ? (matchedWords / totalCountableDocWords * 100) : 0;
-            
+
             return {
                 ...m,
                 matchWordCount: matchedWords,
@@ -267,9 +437,9 @@ const PlagiarismCheckPage: React.FC = () => {
     };
 
     const pollForResult = async (checkId: number): Promise<any> => {
-        setLoadingStatus("Hệ thống đang phân tích sâu (AI & Đạo văn)...");
+        setLoadingStatus("Hệ thống đang phân tích sâu...");
         let attempts = 0;
-        const maxAttempts = 120; // 3 phút (120 * 1.5s) để xử lý tài liệu lớn
+        const maxAttempts = 600; // 15 phút (600 * 1.5s) để xử lý tài liệu lớn
 
         while (attempts < maxAttempts) {
             const detail = await plagiarismApi.getDetail(checkId);
@@ -282,7 +452,7 @@ const PlagiarismCheckPage: React.FC = () => {
                 setLoadingStatus("Đang quét kho dữ liệu nội bộ...");
                 setProgress(prev => Math.min(93, Math.round((prev + 0.5) * 10) / 10));
             } else if (attempts < 40) {
-                setLoadingStatus("Đang phân tích AI và ngữ nghĩa...");
+                setLoadingStatus("Đang phân tích ngữ nghĩa...");
                 setProgress(prev => Math.min(96, Math.round((prev + 0.2) * 10) / 10));
             } else if (attempts < 80) {
                 setLoadingStatus("Đang hoàn thiện kết quả phân tích...");
@@ -394,126 +564,11 @@ const PlagiarismCheckPage: React.FC = () => {
             score: exactTotalSum,
             matchedDocs: consolidatedMatches.length,
             detailedAnalysis: { segments },
-            matches: consolidatedMatches,
-            aiProbability: detail.aiProbability,
-            aiDetectionLevel: detail.aiDetectionLevel,
-            aiAnalysis: detail.aiAnalysis
+            matches: consolidatedMatches
         });
     };
 
-    const renderAiDetailsModal = () => {
-        if (!result?.aiAnalysis) return null;
 
-        return (
-            <Modal
-                title={
-                    <Space>
-                        <WarningOutlined style={{ color: '#faad14' }} />
-                        <span>Chi tiết phân tích trí tuệ nhân tạo (AI)</span>
-                    </Space>
-                }
-                open={isAiModalVisible}
-                onCancel={() => setIsAiModalVisible(false)}
-                footer={[
-                    <Button key="close" onClick={() => setIsAiModalVisible(false)}>Đóng</Button>
-                ]}
-                width={window.innerWidth < 768 ? '95%' : 850}
-                className="ai-details-modal"
-                style={{ top: 20 }}
-            >
-                <div style={{ marginBottom: 25 }}>
-                    <Row gutter={20} style={{ marginBottom: 20 }}>
-                        <Col span={8}>
-                            <Card size="small" style={{ background: '#f0f5ff', border: '1px solid #adc6ff' }}>
-                                <Statistic
-                                    title="Xác suất AI"
-                                    value={result.aiProbability}
-                                    suffix="%"
-                                    valueStyle={{ color: result.aiProbability > 70 ? '#cf1322' : '#389e0d', fontWeight: 'bold' }}
-                                />
-                                <Progress
-                                    percent={result.aiProbability}
-                                    size="small"
-                                    status={result.aiProbability > 70 ? "exception" : "active"}
-                                    showInfo={false}
-                                />
-                            </Card>
-                        </Col>
-                        <Col span={8}>
-                            <Card size="small" style={{ background: '#f9f0ff', border: '1px solid #d3adf7' }}>
-                                <Statistic
-                                    title="Perplexity (Độ đo dễ đoán)"
-                                    value={result.aiAnalysis.perplexity}
-                                    suffix="/100"
-                                    precision={1}
-                                    valueStyle={{ color: result.aiAnalysis.perplexity < 40 ? '#cf1322' : '#389e0d' }}
-                                />
-                                <Text type="secondary" style={{ fontSize: 11 }}>
-                                    {result.aiAnalysis.perplexity < 40 ? "⚠️ Rất dễ đoán (Dấu hiệu AI)" : "✅ Từ vựng phong phú"}
-                                </Text>
-                            </Card>
-                        </Col>
-                        <Col span={8}>
-                            <Card size="small" style={{ background: '#fff7e6', border: '1px solid #ffd591' }}>
-                                <Statistic
-                                    title="Burstiness (Độ biến thiên)"
-                                    value={result.aiAnalysis.burstiness}
-                                    suffix="/100"
-                                    precision={1}
-                                    valueStyle={{ color: result.aiAnalysis.burstiness < 30 ? '#cf1322' : '#389e0d' }}
-                                />
-                                <Text type="secondary" style={{ fontSize: 11 }}>
-                                    {result.aiAnalysis.burstiness < 30 ? "⚠️ Cấu trúc đều (Dấu hiệu AI)" : "✅ Cấu trúc linh hoạt"}
-                                </Text>
-                            </Card>
-                        </Col>
-                    </Row>
-
-                    <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', borderLeft: '4px solid #1890ff' }}>
-                        <Text strong style={{ display: 'block', marginBottom: 5 }}>Tổng quan đánh giá:</Text>
-                        <Paragraph style={{ margin: 0, fontSize: 15 }}>
-                            {result.aiAnalysis.summary}
-                        </Paragraph>
-                    </div>
-                </div>
-
-                <Divider orientation="left" style={{ fontSize: 14, fontWeight: 600 }}>PHÂN TÍCH TỪNG ĐOẠN VĂN</Divider>
-
-                <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '10px', background: '#fafafa', borderRadius: '8px', border: '1px solid #f0f0f0' }}>
-                    {result.aiAnalysis.sentences?.map((item: any, idx: number) => (
-                        <div
-                            key={idx}
-                            style={{
-                                padding: '12px',
-                                marginBottom: '10px',
-                                borderRadius: '8px',
-                                background: item.aiProbability > 70 ? '#fff1f0' : (item.aiProbability > 40 ? '#fffbe6' : '#ffffff'),
-                                border: `1px solid ${item.aiProbability > 70 ? '#ffa39e' : (item.aiProbability > 40 ? '#ffe58f' : '#f0f0f0')}`,
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                <Space>
-                                    <Badge count={idx + 1} style={{ backgroundColor: '#8c8c8c' }} />
-                                    <Text strong style={{ fontSize: 13 }}>Đoạn văn {idx + 1}</Text>
-                                </Space>
-                                <Tag color={item.aiProbability > 70 ? 'red' : (item.aiProbability > 40 ? 'gold' : 'green')}>
-                                    Xác suất AI: {item.aiProbability}%
-                                </Tag>
-                            </div>
-                            <Text style={{ fontSize: 14, lineHeight: '1.6' }}>{item.text}</Text>
-                        </div>
-                    ))}
-                </div>
-
-                <div style={{ marginTop: 20, textAlign: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        <InfoCircleOutlined /> Công cụ sử dụng phương pháp phân tích Perplexity và Burstiness để nhận diện văn bản máy tính tạo ra.
-                    </Text>
-                </div>
-            </Modal>
-        );
-    };
 
     useEffect(() => {
         const state = location.state as { sourceDocId?: number, fileName?: string };
@@ -537,6 +592,9 @@ const PlagiarismCheckPage: React.FC = () => {
             });
 
             const checkResult = await pollForResult(checkRequest.checkId);
+            if (checkResult.status === "Failed") {
+                throw new Error(checkResult.notes || "Phân tích thất bại");
+            }
 
             // 3. Get document text content
             setLoadingStatus("Đang tải dữ liệu văn bản...");
@@ -606,8 +664,104 @@ const PlagiarismCheckPage: React.FC = () => {
         return false; // Stop Ant Design from performing a real POST request
     };
 
-    const handlePrint = () => {
-        window.print();
+    const handleDownloadReport = () => {
+        const data = filteredResult || result;
+        if (!data) return;
+
+        const score = data.score ?? 0;
+        const scoreColor = score >= 30 ? '#ff4d4f' : score >= 15 ? '#fa8c16' : '#52c41a';
+        const fileName = pendingFileName || checkInfo?.fileName || 'Tài liệu';
+        const checkDate = checkInfo?.checkDate
+            ? new Date(checkInfo.checkDate).toLocaleString('vi-VN')
+            : new Date().toLocaleString('vi-VN');
+        const userName = checkInfo?.userName || user?.fullName || 'N/A';
+
+        const matchRows = (data.matches || [])
+            .map((m: any, i: number) => `
+                <tr style="border-bottom:1px solid #f0f0f0;">
+                    <td style="padding:10px 8px;color:#1890ff;font-weight:700;">${i + 1}</td>
+                    <td style="padding:10px 8px;word-break:break-word;">${m.source}</td>
+                    <td style="padding:10px 8px;text-align:center;">
+                        <span style="background:${m.similarity >= 20 ? '#fff1f0' : m.similarity >= 5 ? '#fffbe6' : '#f6ffed'};
+                            color:${m.similarity >= 20 ? '#ff4d4f' : m.similarity >= 5 ? '#fa8c16' : '#52c41a'};
+                            border-radius:4px;padding:2px 10px;font-weight:700;">
+                            ${m.similarity}%
+                        </span>
+                    </td>
+                </tr>`)
+            .join('');
+
+        const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Báo cáo Kiểm tra Đạo văn — ${fileName}</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px; color: #333; background: #fff; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; border-bottom: 3px solid #1890ff; padding-bottom: 20px; }
+        .logo { font-size: 22px; font-weight: 900; color: #1890ff; letter-spacing: -0.5px; }
+        .logo span { color: #333; }
+        .score-badge { text-align: center; background: ${scoreColor}; color: #fff; border-radius: 12px; padding: 16px 32px; }
+        .score-badge .num { font-size: 48px; font-weight: 900; line-height: 1; }
+        .score-badge .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; margin-top: 4px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
+        .info-item { background: #f8fafc; border-radius: 8px; padding: 12px 16px; }
+        .info-item .lbl { font-size: 11px; color: #8c8c8c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .info-item .val { font-size: 14px; font-weight: 600; color: #262626; word-break: break-word; }
+        h2 { font-size: 16px; color: #1890ff; border-left: 4px solid #1890ff; padding-left: 12px; margin: 32px 0 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: #e6f4ff; }
+        thead th { padding: 10px 8px; text-align: left; font-weight: 700; color: #003a8c; }
+        .footer { margin-top: 48px; text-align: center; font-size: 11px; color: #8c8c8c; border-top: 1px solid #f0f0f0; padding-top: 16px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <div class="logo">BAU <span>Plagiarism</span></div>
+            <div style="font-size:13px;color:#8c8c8c;margin-top:4px;">Hệ thống kiểm tra đạo văn Học viện Ngân hàng</div>
+        </div>
+        <div class="score-badge">
+            <div class="num">${Math.round(score)}%</div>
+            <div class="lbl">Chỉ số trùng khớp</div>
+        </div>
+    </div>
+
+    <div class="info-grid">
+        <div class="info-item"><div class="lbl">Tên tài liệu</div><div class="val">${fileName}</div></div>
+        <div class="info-item"><div class="lbl">Người kiểm tra</div><div class="val">${userName}</div></div>
+        <div class="info-item"><div class="lbl">Ngày kiểm tra</div><div class="val">${checkDate}</div></div>
+        <div class="info-item"><div class="lbl">Số nguồn trùng</div><div class="val">${data.matchedDocs ?? data.matches?.length ?? 0} nguồn</div></div>
+    </div>
+
+    <h2>Danh sách nguồn trùng lặp</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width:40px;">#</th>
+                <th>Tài liệu nguồn</th>
+                <th style="width:100px;text-align:center;">Tỷ lệ</th>
+            </tr>
+        </thead>
+        <tbody>${matchRows || '<tr><td colspan="3" style="padding:20px;text-align:center;color:#8c8c8c;">Không có nguồn trùng lặp</td></tr>'}</tbody>
+    </table>
+
+    <div class="footer">
+        Báo cáo được tạo bởi Hệ thống BAU Plagiarism Detection &nbsp;|&nbsp; ${new Date().toLocaleString('vi-VN')}
+    </div>
+</body>
+</html>`;
+
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `BaoCao_DaoVan_${fileName.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        message.success('Đã tải xuống báo cáo!');
     };
 
 
@@ -673,7 +827,7 @@ const PlagiarismCheckPage: React.FC = () => {
             setProgress(50);
 
             // 2. Bắt đầu kiểm tra đạo văn
-            setLoadingStatus("Đang đối soát dữ liệu (Đạo văn & AI)...");
+            setLoadingStatus("Đang đối soát dữ liệu (Đạo văn)...");
             const checkRequest = await plagiarismApi.check({
                 sourceDocumentId: docId,
                 notes: `Kiểm tra từ giao diện Web (${inputType}): ${displayTitle}`
@@ -682,6 +836,9 @@ const PlagiarismCheckPage: React.FC = () => {
             // Xóa bộ đếm tiến trình "giả" và để pollForResult đảm nhận tiến trình thực từ máy chủ
             clearInterval(interval);
             const checkResult = await pollForResult(checkRequest.checkId);
+            if (checkResult.status === "Failed") {
+                throw new Error(checkResult.notes || "Phân tích thất bại");
+            }
 
             // 3. Chuyển đổi kết quả backend sang định dạng frontend
             setLoadingStatus("Đang xử lý kết quả phân tích...");
@@ -725,175 +882,11 @@ const PlagiarismCheckPage: React.FC = () => {
         }
     };
 
-    const SourceComparisonBox: React.FC<{ match: IPlagiarismMatch, onClose: () => void }> = ({ match, onClose }) => {
-        const [sourceContent, setSourceContent] = useState<string | null>(match.fullContent || null);
-        const [loading, setLoading] = useState(!match.fullContent && !!match.matchedDocumentId);
-        const contentRef = useRef<HTMLDivElement>(null);
-
-        useEffect(() => {
-            if (!match.fullContent && match.matchedDocumentId) {
-                setLoading(true);
-                documentApi.getContent(match.matchedDocumentId)
-                    .then(res => setSourceContent(res.content))
-                    .catch(e => console.error("Failed to fetch source content:", e))
-                    .finally(() => setLoading(false));
-            } else {
-                setSourceContent(match.fullContent || null);
-                setLoading(false);
-            }
-        }, [match.matchedDocumentId, match.fullContent]);
-
-        useEffect(() => {
-            if (!loading && sourceContent) {
-                const timer = setTimeout(() => {
-                    const activeElem = contentRef.current?.querySelector('.highlight-active');
-                    if (activeElem) {
-                        activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                }, 300);
-                return () => clearTimeout(timer);
-            }
-        }, [loading, sourceContent, match.text]);
-
-        const renderHighlightedSource = (text: string) => {
-            if (!text) return null;
-            const activeSnippet = (match.text || "").trim();
-            const otherSnippets = (match.allSnippets || []).map(s => s.trim()).filter(s => s && s !== activeSnippet && s.length > 8);
-            // 1-to-1 character folding to preserve indices while allowing accent-insensitive search
-            const foldChar = (c: string) => {
-                const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd');
-                return f.length > 0 ? f[0] : c;
-            };
-            
-            const foldedText = text.split('').map(foldChar).join('').toLowerCase();
-            const markers = new Uint8Array(text.length);
-
-            const markSnippet = (snippet: string, markerType: number) => {
-                if (!snippet || snippet.length < 4) return;
-                
-                // Fold the snippet as well for comparison
-                const normSnippet = snippet.split('').map(foldChar).join('').toLowerCase().trim();
-                
-                try {
-                    // Create pattern: escaping special chars and allowing any non-alphanumeric characters (like punctuation, spaces, newlines) between words.
-                    // This is crucial because backend's exact-match text strips punctuation, but the rendering text still has them!
-                    const pattern = normSnippet
-                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-                        .replace(/\s+/g, '[^a-z0-9A-Z_]+');
-                    
-                    const regex = new RegExp(pattern, 'gi');
-                    let matchResult;
-                    
-                    // Search in the FOLDED text which has identical length to original
-                    while ((matchResult = regex.exec(foldedText)) !== null) {
-                        const start = matchResult.index;
-                        const end = start + matchResult[0].length;
-                        for (let i = start; i < end; i++) {
-                            // Active (1) overrules Secondary (2)
-                            if (markers[i] === 0 || (markerType === 1)) markers[i] = markerType;
-                        }
-                        if (regex.lastIndex === start) regex.lastIndex++;
-                    }
-                } catch (e) {
-                    console.error("Marker Regex error:", e);
-                }
-            };
-            otherSnippets.forEach(s => markSnippet(s, 2));
-            if (activeSnippet) markSnippet(activeSnippet, 1);
-
-            const elements: React.ReactNode[] = [];
-            let i = 0, key = 0;
-            while (i < text.length) {
-                const currentType = markers[i];
-                let j = i + 1;
-                while (j < text.length && markers[j] === currentType) j++;
-                const chunk = text.substring(i, j);
-                if (currentType === 1) elements.push(<mark key={key++} className="highlight-active" style={{ background: '#bae7ff', color: '#003a8c', borderRadius: 3, padding: '1px 0', fontWeight: 600, boxShadow: '0 0 0 1px #69c0ff' }}>{chunk}</mark>);
-                else if (currentType === 2) elements.push(<mark key={key++} className="highlight-secondary" style={{ background: '#fff1b8', color: '#613400', borderRadius: 3, padding: '1px 0', boxShadow: '0 0 0 1px #ffd666' }}>{chunk}</mark>);
-                else {
-                    elements.push(<span key={key++}>{chunk}</span>);
-                }
-                i = j;
-            }
-            return elements;
-        };
-
-        return (
-            <Card
-                className="comparison-source-panel animate-fade-in glass-card"
-                style={{ position: 'sticky', top: 20, border: '1px solid #bae7ff' }}
-                title={
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Space>
-                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#1890ff' }}></div>
-                            <Text strong style={{ color: '#003a8c' }}>TÀI LIỆU ĐỐI SOÁT CHI TIẾT</Text>
-                        </Space>
-                        <Button 
-                            type="primary" 
-                            danger 
-                            ghost 
-                            size="small" 
-                            icon={<CloseOutlined />} 
-                            onClick={onClose}
-                        >
-                            Đóng
-                        </Button>
-                    </div>
-                }
-                headStyle={{ background: '#f0f7ff', borderBottom: '1px solid #bae7ff' }}
-                bodyStyle={{ padding: 16 }}
-            >
-                <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 15, background: '#fff', padding: 12, borderRadius: 8, border: '1px solid #e6f7ff' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <Title level={5} style={{ color: '#003a8c', marginBottom: 4, fontSize: 14, wordBreak: 'break-word' }}>{match.source}</Title>
-                            <Space split={<Divider type="vertical" />}>
-                                {match.author && <Text type="secondary" style={{ fontSize: 11 }}><UserOutlined /> {match.author}</Text>}
-                                <Tag color="blue" icon={<FileSearchOutlined />} style={{ fontSize: 10 }}>Đang so khớp</Tag>
-                            </Space>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <Statistic title="Góp mặt" value={match.similarity} suffix="%" valueStyle={{ color: '#1890ff', fontSize: 20, fontWeight: 'bold' }} />
-                        </div>
-                    </div>
-                </div>
-                
-                <div 
-                    className="custom-scrollbar" 
-                    ref={contentRef} 
-                    style={{ 
-                        height: 'calc(100vh - 400px)', 
-                        minHeight: 400, 
-                        padding: '24px', 
-                        background: '#f8fafc', 
-                        overflowY: 'auto', 
-                        overflowX: 'hidden',
-                        border: '1px solid #e2e8f0', 
-                        borderRadius: 8 
-                    }}
-                >
-                    <div style={{ lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', fontFamily: '"Merriweather", serif', fontSize: 15, color: '#334155', textAlign: 'justify' }}>
-                        {loading ? (
-                            <div style={{ textAlign: 'center', padding: '100px 0' }}>
-                                <Spin tip="Đang tải dữ liệu nguồn..." />
-                            </div>
-                        ) : renderHighlightedSource(sourceContent || "")}
-                    </div>
-                </div>
-
-                <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-                    <Tag color="blue" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Đang chọn</Tag>
-                    <Tag color="orange" style={{ flex: 1, textAlign: 'center', padding: '4px 0' }}>Trùng lặp khác</Tag>
-                </div>
-            </Card>
-        );
-    };
-
     const TurnitinSidebar = () => {
         if (currentStep !== 2 || !filteredResult) return null;
 
         const activeScore = Math.round(filteredResult.score);
-        
+
         return (
             <div className="turnitin-sidebar-container">
                 <style>{`
@@ -1010,7 +1003,7 @@ const PlagiarismCheckPage: React.FC = () => {
                         border-color: #40a9ff !important;
                     }
                 `}</style>
-                
+
                 <div className="turnitin-panel">
                     {sidePanelType === 'filters' && (
                         <>
@@ -1022,16 +1015,16 @@ const PlagiarismCheckPage: React.FC = () => {
                                 <div className="filter-group">
                                     <span className="filter-label">BỘ LỌC</span>
                                     <div className="filter-row">
-                                        <Checkbox 
-                                            checked={excludeQuotes} 
+                                        <Checkbox
+                                            checked={excludeQuotes}
                                             onChange={e => setExcludeQuotes(e.target.checked)}
                                         >
                                             Loại trừ Trích dẫn
                                         </Checkbox>
                                     </div>
                                     <div className="filter-row">
-                                        <Checkbox 
-                                            checked={excludeBibliography} 
+                                        <Checkbox
+                                            checked={excludeBibliography}
                                             onChange={e => setExcludeBibliography(e.target.checked)}
                                         >
                                             Loại trừ Mục lục Tham khảo
@@ -1043,19 +1036,19 @@ const PlagiarismCheckPage: React.FC = () => {
 
                                 <div className="filter-group">
                                     <span className="filter-label">LOẠI TRỪ CÁC NGUỒN CÓ ÍT HƠN:</span>
-                                    <Radio.Group 
-                                        value={excludeType} 
+                                    <Radio.Group
+                                        value={excludeType}
                                         onChange={e => setExcludeType(e.target.value)}
                                         style={{ width: '100%' }}
                                     >
                                         <Space direction="vertical" size={16} style={{ width: '100%' }}>
                                             <Radio value="words" style={{ display: 'flex', alignItems: 'center' }}>
                                                 <Space>
-                                                    <InputNumber 
-                                                        size="small" 
-                                                        min={1} 
-                                                        value={excludeMinWords} 
-                                                        onChange={val => setExcludeMinWords(val || 1)} 
+                                                    <InputNumber
+                                                        size="small"
+                                                        min={1}
+                                                        value={excludeMinWords}
+                                                        onChange={val => setExcludeMinWords(val || 1)}
                                                         disabled={excludeType !== 'words'}
                                                         style={{ width: 60 }}
                                                     />
@@ -1064,12 +1057,12 @@ const PlagiarismCheckPage: React.FC = () => {
                                             </Radio>
                                             <Radio value="percent" style={{ display: 'flex', alignItems: 'center' }}>
                                                 <Space>
-                                                    <InputNumber 
-                                                        size="small" 
-                                                        min={1} 
-                                                        max={100} 
-                                                        value={excludeMinPercent} 
-                                                        onChange={val => setExcludeMinPercent(val || 1)} 
+                                                    <InputNumber
+                                                        size="small"
+                                                        min={1}
+                                                        max={100}
+                                                        value={excludeMinPercent}
+                                                        onChange={val => setExcludeMinPercent(val || 1)}
                                                         disabled={excludeType !== 'percent'}
                                                         style={{ width: 60 }}
                                                     />
@@ -1082,16 +1075,16 @@ const PlagiarismCheckPage: React.FC = () => {
                                 </div>
 
                                 <div style={{ marginTop: 40, textAlign: 'center' }}>
-                                    <Button 
-                                        type="primary" 
+                                    <Button
+                                        type="primary"
                                         className="apply-btn"
                                         block
                                         onClick={() => setSidePanelVisible(false)}
                                     >
                                         Áp dụng các thay đổi
                                     </Button>
-                                    <Button 
-                                        type="link" 
+                                    <Button
+                                        type="link"
                                         style={{ marginTop: 12, color: '#666' }}
                                         onClick={() => {
                                             setExcludeQuotes(false);
@@ -1114,17 +1107,17 @@ const PlagiarismCheckPage: React.FC = () => {
                             </div>
                             <div className="panel-inner custom-scrollbar" style={{ padding: '16px' }}>
                                 <div style={{ marginBottom: 20, textAlign: 'center' }}>
-                                    <Statistic 
-                                        value={activeScore} 
-                                        suffix="%" 
+                                    <Statistic
+                                        value={activeScore}
+                                        suffix="%"
                                         title={<Text strong style={{ color: '#1890ff' }}>CHỈ SỐ TRÙNG KHỚP</Text>}
                                         valueStyle={{ color: '#1890ff', fontSize: 36, fontWeight: 900 }}
                                     />
                                 </div>
                                 <Divider style={{ margin: '12px 0 20px' }} />
                                 {filteredResult.matches.map((m: any, idx: number) => (
-                                    <div 
-                                        key={idx} 
+                                    <div
+                                        key={idx}
                                         className="simple-match-row"
                                         style={{
                                             borderLeft: `4px solid ${m.severity === 'high' ? '#ff4d4f' : (m.severity === 'medium' ? '#faad14' : '#52c41a')}`,
@@ -1143,11 +1136,11 @@ const PlagiarismCheckPage: React.FC = () => {
                                                 .filter((s: any) => s.source === m.source && s.matchedText)
                                                 .map((s: any) => s.matchedText);
                                             const firstSeg = segments.find((s: any) => s.source === m.source && s.matchedText);
-                                            
-                                            setSelectedMatch({ 
-                                                ...m, 
+
+                                            setSelectedMatch({
+                                                ...m,
                                                 text: firstSeg?.matchedText || m.text,
-                                                allSnippets: allMatchedTexts 
+                                                allSnippets: allMatchedTexts
                                             });
                                             const matchIndex = segments.findIndex((s: any) => s.source === m.source);
                                             if (matchIndex !== -1) {
@@ -1229,7 +1222,7 @@ const PlagiarismCheckPage: React.FC = () => {
                 </div>
 
                 <div className="turnitin-vertical-tabs">
-                    <div 
+                    <div
                         className={`v-tab-item ${sidePanelType === 'matches' && sidePanelVisible ? 'active' : ''}`}
                         onClick={() => {
                             if (sidePanelType === 'matches' && sidePanelVisible) {
@@ -1243,7 +1236,7 @@ const PlagiarismCheckPage: React.FC = () => {
                         <div className="tab-val">{activeScore}</div>
                         <LayersOutlined className="tab-icon" />
                     </div>
-                    <div 
+                    <div
                         className={`v-tab-item ${sidePanelType === 'filters' && sidePanelVisible ? 'active' : ''}`}
                         onClick={() => {
                             if (sidePanelType === 'filters' && sidePanelVisible) {
@@ -1256,10 +1249,10 @@ const PlagiarismCheckPage: React.FC = () => {
                     >
                         <FilterOutlined style={{ fontSize: 22 }} />
                     </div>
-                    <div className="v-tab-item" onClick={() => window.print()}>
+                     <div className="v-tab-item" onClick={handleDownloadReport}>
                         <DownloadOutlined style={{ fontSize: 22 }} />
                     </div>
-                    <div 
+                    <div
                         className={`v-tab-item ${sidePanelType === 'info' && sidePanelVisible ? 'active' : ''}`}
                         onClick={() => {
                             if (sidePanelType === 'info' && sidePanelVisible) {
@@ -1295,7 +1288,7 @@ const PlagiarismCheckPage: React.FC = () => {
             if (seg.score > 0) {
                 // Only highlight if the source is still in our filtered matches list
                 const isActiveSource = currentData.matches.some((m: any) => m.source === seg.source);
-                
+
                 if (!isActiveSource) return <span key={idx}>{seg.text}</span>;
 
                 const isSelected = selectedMatch && selectedMatch.source === seg.source;
@@ -1313,11 +1306,11 @@ const PlagiarismCheckPage: React.FC = () => {
                                 const allMatchedTexts = currentData.detailedAnalysis.segments
                                     .filter((s: any) => s.source === seg.source && s.matchedText)
                                     .map((s: any) => s.matchedText);
-                                
-                                setSelectedMatch({ 
-                                    ...match, 
+
+                                setSelectedMatch({
+                                    ...match,
                                     text: seg.matchedText || seg.text,
-                                    allSnippets: allMatchedTexts 
+                                    allSnippets: allMatchedTexts
                                 });
                                 setActiveMatchId(seg.id);
                             }
@@ -1495,7 +1488,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                 <Title level={4}>{loadingStatus}</Title>
                                 <Text type="secondary">
                                     {progress < 40 ? "Đang chuẩn bị dữ liệu..." :
-                                        progress < 80 ? "Chúng tôi đang so khớp với hàng triệu tài liệu..." :
+                                        progress < 80 ? "Chúng tôi đang so khớp với các tài liệu..." :
                                             "Sắp hoàn tất, đang tổng hợp kết quả phân tích..."}
                                 </Text>
                             </div>
@@ -1506,7 +1499,7 @@ const PlagiarismCheckPage: React.FC = () => {
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
                             <div style={{ paddingRight: sidePanelVisible ? 395 : 55, transition: 'padding 0.3s ease' }}>
                                 <TurnitinSidebar />
-                                
+
                                 <Row gutter={[24, 24]}>
                                     <Col span={24}>
                                         {/* Modern Result Header */}
@@ -1613,8 +1606,8 @@ const PlagiarismCheckPage: React.FC = () => {
                                                         <Button
                                                             block
                                                             size="large"
-                                                            icon={<EyeOutlined />}
-                                                            onClick={handlePrint}
+                                                            icon={<DownloadOutlined />}
+                                                            onClick={handleDownloadReport}
                                                             style={{
                                                                 background: 'rgba(255,255,255,0.15)',
                                                                 border: '1px solid rgba(255,255,255,0.3)',
@@ -1622,7 +1615,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                                                 fontWeight: 500
                                                             }}
                                                         >
-                                                            Xuất báo cáo (In)
+                                                            Tải xuống báo cáo
                                                         </Button>
                                                         {qualityAnalysis && (
                                                             <Button
@@ -1654,8 +1647,8 @@ const PlagiarismCheckPage: React.FC = () => {
                                                             ghost
                                                             icon={<ArrowLeftOutlined />}
                                                             onClick={resetAnalysis}
-                                                            style={{ 
-                                                                color: '#fff', 
+                                                            style={{
+                                                                color: '#fff',
                                                                 borderColor: 'rgba(255,255,255,0.6)',
                                                                 fontWeight: 600,
                                                                 marginTop: 12
@@ -1668,61 +1661,22 @@ const PlagiarismCheckPage: React.FC = () => {
                                             </Row>
                                         </Card>
 
-                                    {/* AI Detection Result Card */}
-                                    {result.aiProbability !== undefined && (
-                                        <Card
-                                            size="small"
-                                            style={{
-                                                marginBottom: 24,
-                                                background: result.aiProbability > 70 ? '#fff1f0' : (result.aiProbability > 40 ? '#fffbe6' : '#f6ffed'),
-                                                border: `1px solid ${result.aiProbability > 70 ? '#ffa39e' : (result.aiProbability > 40 ? '#ffe58f' : '#b7eb8f')}`
-                                            }}
-                                        >
-                                            <Row align="middle" gutter={[16, 16]}>
-                                                <Col xs={24} sm={6}>
-                                                    <Statistic
-                                                        title={<Space><WarningOutlined /> Xác suất AI</Space>}
-                                                        value={result.aiProbability}
-                                                        suffix="%"
-                                                        valueStyle={{
-                                                            color: result.aiProbability > 70 ? '#cf1322' : (result.aiProbability > 40 ? '#d48806' : '#389e0d'),
-                                                            fontWeight: 'bold',
-                                                            fontSize: window.innerWidth < 768 ? 20 : 24
-                                                        }}
-                                                    />
-                                                </Col>
-                                                <Col xs={0} sm={1}>
-                                                    <Divider type="vertical" style={{ height: 40 }} />
-                                                </Col>
-                                                <Col xs={24} sm={12}>
-                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                        <Text strong style={{ fontSize: 16 }}>
-                                                            Mức độ nghi ngờ: <Tag color={result.aiProbability > 70 ? 'red' : (result.aiProbability > 40 ? 'gold' : 'green')}>{result.aiDetectionLevel}</Tag>
-                                                        </Text>
-                                                        <Text type="secondary" style={{ fontSize: 13 }}>{result.aiAnalysis?.summary || "Đang phân tích chi tiết..."}</Text>
-                                                    </div>
-                                                </Col>
-                                                <Col xs={24} sm={5}>
-                                                    <Button type="primary" ghost block onClick={() => setIsAiModalVisible(true)}>Chi tiết AI</Button>
-                                                </Col>
-                                            </Row>
-                                        </Card>
-                                    )}
 
-                                    {/* Print-only Summary Header */}
-                                    <div className="print-only" style={{ padding: '20px 0', borderBottom: '2px solid #003a8c', marginBottom: 30 }}>
-                                        <Title level={2}>BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN</Title>
-                                        <Space size="large" style={{ marginTop: 20 }}>
-                                            <Statistic title="Tỷ lệ trùng khớp" value={result.score} suffix="%" valueStyle={{ color: result.score > 20 ? '#ff4d4f' : '#52c41a' }} />
-                                            <Statistic title="Số nguồn trùng khớp" value={result.matchedDocs} />
-                                            <Statistic title="Ngày kiểm tra" value={new Date().toLocaleDateString('vi-VN')} />
-                                        </Space>
-                                        <div style={{ marginTop: 20 }}>
-                                            <Text strong>Tên tài liệu:</Text> <Text>{pendingFileName}</Text>
+
+                                        {/* Print-only Summary Header */}
+                                        <div className="print-only" style={{ padding: '20px 0', borderBottom: '2px solid #003a8c', marginBottom: 30 }}>
+                                            <Title level={2}>BÁO CÁO KẾT QUẢ KIỂM TRA ĐẠO VĂN</Title>
+                                            <Space size="large" style={{ marginTop: 20 }}>
+                                                <Statistic title="Tỷ lệ trùng khớp" value={result.score} suffix="%" valueStyle={{ color: result.score > 20 ? '#ff4d4f' : '#52c41a' }} />
+                                                <Statistic title="Số nguồn trùng khớp" value={result.matchedDocs} />
+                                                <Statistic title="Ngày kiểm tra" value={new Date().toLocaleDateString('vi-VN')} />
+                                            </Space>
+                                            <div style={{ marginTop: 20 }}>
+                                                <Text strong>Tên tài liệu:</Text> <Text>{pendingFileName}</Text>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                </Col>
+                                    </Col>
 
                                     {/* Main Analysis Side-by-Side Area */}
                                     <Col xs={24} lg={selectedMatch ? 12 : 16}>
@@ -1781,13 +1735,13 @@ const PlagiarismCheckPage: React.FC = () => {
                                                                         const allMatchedTexts = segments
                                                                             .filter((s: any) => s.source === item.source && s.matchedText)
                                                                             .map((s: any) => s.matchedText);
-                                                                        
+
                                                                         const firstSeg = segments.find((s: any) => s.source === item.source && s.matchedText);
-                                                                        
-                                                                        setSelectedMatch({ 
-                                                                            ...item, 
+
+                                                                        setSelectedMatch({
+                                                                            ...item,
                                                                             text: firstSeg?.matchedText || item.text,
-                                                                            allSnippets: allMatchedTexts 
+                                                                            allSnippets: allMatchedTexts
                                                                         });
                                                                         const matchIndex = segments.findIndex((s: any) => s.source === item.source);
                                                                         if (matchIndex !== -1) {
@@ -1803,11 +1757,11 @@ const PlagiarismCheckPage: React.FC = () => {
                                                                     <Text ellipsis={true} style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#444', marginBottom: 8 }}>
                                                                         {item.source}
                                                                     </Text>
-                                                                    <Progress 
-                                                                        percent={item.similarity} 
-                                                                        size="small" 
-                                                                        showInfo={false} 
-                                                                        strokeColor={item.similarity > 50 ? '#ca2027' : (item.similarity > 20 ? '#faad14' : '#52c41a')} 
+                                                                    <Progress
+                                                                        percent={item.similarity}
+                                                                        size="small"
+                                                                        showInfo={false}
+                                                                        strokeColor={item.similarity > 50 ? '#ca2027' : (item.similarity > 20 ? '#faad14' : '#52c41a')}
                                                                     />
                                                                     <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between' }}>
                                                                         <Tag color="default" style={{ fontSize: 10 }}>BAV Database</Tag>
@@ -1833,7 +1787,6 @@ const PlagiarismCheckPage: React.FC = () => {
                         Tính năng <strong>So sánh trực tiếp</strong> giúp giảng viên và sinh viên đối chiếu chính xác đoạn văn bị trùng với tài liệu gốc trong kho lưu trữ.
                     </Paragraph>
                 </Card>
-                {renderAiDetailsModal()}
                 <QualityAnalysisModal
                     visible={isQualityModalVisible}
                     onClose={() => setIsQualityModalVisible(false)}
