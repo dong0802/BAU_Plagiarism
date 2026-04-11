@@ -4,17 +4,19 @@ import {
     FilePdfOutlined, UserOutlined, CalendarOutlined,
     UploadOutlined, InboxOutlined, FileSearchOutlined,
     CheckCircleOutlined, PlusCircleOutlined, InfoCircleOutlined,
-    FileDoneOutlined, TeamOutlined, FolderOpenOutlined, FileTextOutlined
+    FileDoneOutlined, TeamOutlined, FolderOpenOutlined, FileTextOutlined,
+    MinusCircleOutlined, BlockOutlined
 } from '@ant-design/icons';
 import {
     Table, Card, Typography, Input, Space, Button, Tag,
     Tooltip, message, Modal, Row, Col, Statistic,
-    Upload, Form, Select, Empty, Spin
+    Upload, Form, Select, Empty, Spin, Divider
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import documentApi, { DocumentDto } from '../api/documentApi';
+import plagiarismApi, { PlagiarismStatisticsDto } from '../api/plagiarismApi';
 import catalogApi, { FacultyDto, SubjectDto } from '../api/catalogApi';
 
 const { Title, Text, Paragraph } = Typography;
@@ -48,6 +50,15 @@ const DocumentListPage: React.FC = () => {
     const [selectedSubject, setSelectedSubject] = useState<number | null>(null);
     const [uploadForm] = Form.useForm();
 
+    // 1v1 Compare
+    const [compareVisible, setCompareVisible] = useState(false);
+    const [doc1Id, setDoc1Id] = useState<number | null>(null);
+    const [doc2Id, setDoc2Id] = useState<number | null>(null);
+    const [compareCalculating, setCompareCalculating] = useState(false);
+    const [compareResult, setCompareResult] = useState<any>(null);
+
+    const [stats, setStats] = useState<PlagiarismStatisticsDto | null>(null);
+
     const fetchDocuments = async () => {
         setLoading(true);
         try {
@@ -69,9 +80,19 @@ const DocumentListPage: React.FC = () => {
         }
     };
 
+    const fetchStatistics = async () => {
+        try {
+            const s = await plagiarismApi.getStatistics();
+            setStats(s);
+        } catch (error) {
+            console.error('Error fetching statistics:', error);
+        }
+    };
+
     useEffect(() => {
         fetchDocuments();
         fetchCatalog();
+        fetchStatistics();
     }, []);
 
     const handleBatchUpload = async () => {
@@ -271,7 +292,7 @@ const DocumentListPage: React.FC = () => {
                             <Button
                                 type="text"
                                 className="action-btn-hover"
-                                icon={record.isPublic ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : <PlusCircleOutlined style={{ color: '#faad14' }} />}
+                                icon={record.isPublic ? <MinusCircleOutlined style={{ color: '#ff4d4f' }} /> : <CheckCircleOutlined style={{ color: '#52c41a' }} />}
                                 onClick={() => handleTogglePublic(record)}
                             />
                         </Tooltip>
@@ -327,20 +348,30 @@ const DocumentListPage: React.FC = () => {
                         allowClear
                     />
                     {(isStudent || user?.role === 'Admin') && (
-                        <Button
-                            type="primary"
-                            icon={<UploadOutlined />}
-                            size="large"
-                            onClick={() => setUploadVisible(true)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                width: window.innerWidth < 768 ? '100%' : 'auto',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            Tải lên tài liệu
-                        </Button>
+                        <Space>
+                            <Button
+                                type="primary"
+                                icon={<BlockOutlined />}
+                                size="large"
+                                onClick={() => {
+                                    setCompareVisible(true);
+                                    setCompareResult(null);
+                                    setDoc1Id(null);
+                                    setDoc2Id(null);
+                                }}
+                                style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                            >
+                                So sánh 1-vs-1
+                            </Button>
+                            <Button
+                                type="primary"
+                                icon={<UploadOutlined />}
+                                size="large"
+                                onClick={() => setUploadVisible(true)}
+                            >
+                                Tải lên tài liệu
+                            </Button>
+                        </Space>
                     )}
                 </Space>
             </div>
@@ -350,7 +381,7 @@ const DocumentListPage: React.FC = () => {
                 <Col xs={24} sm={8}>
                     <Card className="glass-card stat-card" bordered={false}>
                         <Statistic
-                            title={<Space><FileDoneOutlined />Tổng số tài liệu</Space>}
+                            title={<Space><FileDoneOutlined />Tổng số tài liệu {isStudent && "của tôi"}</Space>}
                             value={documents.length}
                             valueStyle={{ color: 'var(--primary-color)', fontWeight: 700 }}
                         />
@@ -358,21 +389,39 @@ const DocumentListPage: React.FC = () => {
                 </Col>
                 <Col xs={24} sm={8}>
                     <Card className="glass-card stat-card" bordered={false}>
-                        <Statistic
-                            title={<Space><FolderOpenOutlined />Đã duyệt vào kho</Space>}
-                            value={documents.filter(d => d.isPublic).length}
-                            valueStyle={{ color: '#52c41a', fontWeight: 700 }}
-                            suffix={<Text type="secondary" style={{ fontSize: 14 }}>tập tin</Text>}
-                        />
+                        {isStudent ? (
+                            <Statistic
+                                title={<Space><InfoCircleOutlined />Độ đạo văn TB (của tôi)</Space>}
+                                value={stats?.averageSimilarity ? stats.averageSimilarity.toFixed(1) : 0}
+                                suffix="%"
+                                valueStyle={{ color: '#faad14', fontWeight: 700 }}
+                            />
+                        ) : (
+                            <Statistic
+                                title={<Space><FolderOpenOutlined />Đã duyệt vào kho</Space>}
+                                value={documents.filter(d => d.isPublic).length}
+                                valueStyle={{ color: '#52c41a', fontWeight: 700 }}
+                                suffix={<Text type="secondary" style={{ fontSize: 14 }}>tập tin</Text>}
+                            />
+                        )}
                     </Card>
                 </Col>
                 <Col xs={24} sm={8}>
                     <Card className="glass-card stat-card" bordered={false}>
-                        <Statistic
-                            title={<Space><TeamOutlined />Người đóng góp</Space>}
-                            value={Array.from(new Set(documents.map(d => d.userId))).length}
-                            valueStyle={{ color: '#722ed1', fontWeight: 700 }}
-                        />
+                        {isStudent ? (
+                            <Statistic
+                                title={<Space><FolderOpenOutlined />Đã đóng góp vào kho</Space>}
+                                value={documents.filter(d => d.isPublic).length}
+                                valueStyle={{ color: '#52c41a', fontWeight: 700 }}
+                                suffix={<Text type="secondary" style={{ fontSize: 14 }}>tập tin</Text>}
+                            />
+                        ) : (
+                            <Statistic
+                                title={<Space><TeamOutlined />Người đóng góp</Space>}
+                                value={Array.from(new Set(documents.map(d => d.userId))).length}
+                                valueStyle={{ color: '#722ed1', fontWeight: 700 }}
+                            />
+                        )}
                     </Card>
                 </Col>
             </Row>
@@ -433,7 +482,7 @@ const DocumentListPage: React.FC = () => {
                     <Card className="glass-card" style={{ background: 'var(--primary-gradient)', color: 'white', border: 'none' }}>
                         <Title level={5} style={{ color: 'white', margin: 0 }}>Gợi ý:</Title>
                         <Paragraph style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', marginTop: 12 }}>
-                            Sử dụng kho tài liệu để làm cơ sở đối soát tin cậy nhất cho các bài làm của sinh viên HVNH.
+                            Sử dụng kho tài liệu để làm cơ sở đối soát tin cậy nhất cho các bài làm của sinh viên BAV.
                         </Paragraph>
                     </Card>
                 </Col>
@@ -588,9 +637,107 @@ const DocumentListPage: React.FC = () => {
                     )}
                 </div>
             </Modal>
+
+            {/* Cross-check Modal */}
+            <Modal
+                title={<Space><BlockOutlined style={{ color: '#722ed1' }}/> <span>Công cụ So sánh chéo trực tiếp (Cross-check 1-vs-1)</span></Space>}
+                open={compareVisible}
+                onCancel={() => setCompareVisible(false)}
+                footer={null}
+                width={800}
+                centered
+            >
+                {!compareResult ? (
+                    <div style={{ padding: '20px 0' }}>
+                        <div style={{ background: '#f0faff', padding: 16, borderRadius: 8, marginBottom: 24 }}>
+                            <Text type="secondary"><InfoCircleOutlined /> Công cụ thực tế giúp bạn phát hiện việc mượn ý tưởng trực tiếp giữa 2 tài liệu với nhau, nhanh chóng và chính xác.</Text>
+                        </div>
+                        <Row gutter={24} align="middle">
+                            <Col span={10}>
+                                <Text strong>Tài liệu A (Nguồn):</Text>
+                                <Select
+                                    showSearch
+                                    style={{ width: '100%', marginTop: 8 }}
+                                    placeholder="Chọn tài liệu gốc"
+                                    optionFilterProp="children"
+                                    filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
+                                    value={doc1Id}
+                                    onChange={setDoc1Id}
+                                >
+                                    {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
+                                </Select>
+                            </Col>
+                            <Col span={4} style={{ textAlign: 'center', fontSize: 24, marginTop: 24 }}>
+                                ⚔️
+                            </Col>
+                            <Col span={10}>
+                                <Text strong>Tài liệu B (Đối chiếu):</Text>
+                                <Select
+                                    showSearch
+                                    style={{ width: '100%', marginTop: 8 }}
+                                    placeholder="Chọn tài liệu cần so sánh"
+                                    optionFilterProp="children"
+                                    filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
+                                    value={doc2Id}
+                                    onChange={setDoc2Id}
+                                >
+                                    {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
+                                </Select>
+                            </Col>
+                        </Row>
+                        <div style={{ textAlign: 'center', marginTop: 40 }}>
+                            <Button 
+                                type="primary" size="large" 
+                                style={{ background: '#722ed1', border: 'none', width: 250 }}
+                                disabled={!doc1Id || !doc2Id || doc1Id === doc2Id}
+                                loading={compareCalculating}
+                                onClick={async () => {
+                                    setCompareCalculating(true);
+                                    try {
+                                        const res = await plagiarismApi.compare1v1({ document1Id: doc1Id!, document2Id: doc2Id! });
+                                        setCompareResult(res);
+                                    } catch (e: any) {
+                                        message.error("Lỗi khi so sánh: " + (e.message || "Vui lòng khởi động lại Server API để nhận tính năng mới."));
+                                    } finally {
+                                        setCompareCalculating(false);
+                                    }
+                                }}
+                            >
+                                Thực hiện so sánh
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ padding: '20px 0' }}>
+                        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                            <div style={{ fontSize: 60, fontWeight: 'bold', color: compareResult.overallScore > 20 ? '#ff4d4f' : '#52c41a' }}>
+                                {compareResult.overallScore.toFixed(1)}%
+                            </div>
+                            <Text style={{ fontSize: 18 }}>Tỷ lệ Trùng Lặp Giữa 2 Tài Liệu</Text>
+                        </div>
+
+                        <Divider>Đoạn văn bị trùng lặp điển hình</Divider>
+                        
+                        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                            {compareResult.matches && compareResult.matches.length > 0 ? (
+                                compareResult.matches.map((m: any, idx: number) => (
+                                    <div key={idx} style={{ background: '#fffbe6', padding: 12, borderLeft: '4px solid #faad14', marginBottom: 12 }}>
+                                        <Text>"{m.matchedText}"</Text>
+                                    </div>
+                                ))
+                            ) : (
+                                <Empty description="Tài liệu hoàn toàn trong sạch, không có đoạn nào giống nhau!" />
+                            )}
+                        </div>
+
+                        <div style={{ textAlign: 'center', marginTop: 24 }}>
+                            <Button onClick={() => setCompareResult(null)}>Thử nghiệm file khác</Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
 
 export default DocumentListPage;
-
