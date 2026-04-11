@@ -638,7 +638,7 @@ const PlagiarismCheckPage: React.FC = () => {
 
             if (inputType === 'file' && pendingFile) {
                 // 1. Tải tài liệu lên
-                setLoadingStatus("Đang tải tài liệu lên máy chủ BAU...");
+                setLoadingStatus("Đang tải tài liệu lên máy chủ BAV...");
                 const uploadResult = await documentApi.upload({
                     file: pendingFile,
                     title: pendingFileName,
@@ -1185,7 +1185,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                         </div>
                                         <div style={{ paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
                                             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>ID Bài nộp:</Text>
-                                            <Text copyable style={{ fontSize: 14, color: '#262626' }}>{sourceDocId || "BAU-" + new Date().getTime()}</Text>
+                                            <Text copyable style={{ fontSize: 14, color: '#262626' }}>{sourceDocId || "BAV-" + new Date().getTime()}</Text>
                                         </div>
                                         <div style={{ paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
                                             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Ngày kiểm tra:</Text>
@@ -1389,7 +1389,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                         <Divider plain><Text type="secondary">Kéo thả file .docx, .pdf hoặc .txt</Text></Divider>
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 20 }}>
-                                        <Badge status="processing" text="Dữ liệu nội bộ BAU" />
+                                        <Badge status="processing" text="Dữ liệu nội bộ BAV" />
                                         <Badge status="warning" text="Cơ sở dữ liệu Internet" />
                                         <Badge status="success" text="Tạp chí khoa học" />
                                     </div>
@@ -1810,7 +1810,7 @@ const PlagiarismCheckPage: React.FC = () => {
                                                                         strokeColor={item.similarity > 50 ? '#ca2027' : (item.similarity > 20 ? '#faad14' : '#52c41a')} 
                                                                     />
                                                                     <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-                                                                        <Tag color="default" style={{ fontSize: 10 }}>BAU Database</Tag>
+                                                                        <Tag color="default" style={{ fontSize: 10 }}>BAV Database</Tag>
                                                                         {item.author && <Text type="secondary" style={{ fontSize: 11 }}>{item.author}</Text>}
                                                                     </div>
                                                                 </div>
@@ -1827,7 +1827,7 @@ const PlagiarismCheckPage: React.FC = () => {
                     )}
                 </Card>
 
-                <Card className="glass-card" title={<Space><InfoCircleOutlined style={{ color: '#faad14' }} /> <Text>Quy định về đạo văn tại BAU</Text></Space>}>
+                <Card className="glass-card" title={<Space><InfoCircleOutlined style={{ color: '#faad14' }} /> <Text>Quy định về đạo văn tại BAV</Text></Space>}>
                     <Paragraph>
                         Theo quy định của Học viện Ngân hàng, các sản phẩm học thuật có tỷ lệ trùng khớp <strong>trên 20%</strong> sẽ bị đánh giá là không đạt.
                         Tính năng <strong>So sánh trực tiếp</strong> giúp giảng viên và sinh viên đối chiếu chính xác đoạn văn bị trùng với tài liệu gốc trong kho lưu trữ.
