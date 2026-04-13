@@ -6,7 +6,7 @@ Hệ thống kiểm tra đạo văn chuyên nghiệp được thiết kế riên
 
 ## ✨ Tính năng nổi bật
 
-*   🚀 **Phát hiện Đạo văn Thông minh**: So khớp văn bản với kho dữ liệu nội bộ cực lớn (luận văn, tiểu luận, giáo trình) và Internet.
+*   🚀 **Phát hiện Đạo văn Thông minh**: So khớp văn bản với kho dữ liệu nội bộ cực lớn (luận văn, tiểu luận, giáo trình).
 *   🔍 **So sánh Chéo 1-vs-1**: Công cụ đối soát trực tiếp 2 tài liệu bất kỳ trong hệ thống để tìm kiếm sự trùng lặp chi tiết.
 *   📄 **Báo cáo Chuyên nghiệp**: Xuất báo cáo kết quả kiểm tra dưới định dạng HTML/PDF đẹp mắt, đầy đủ các chỉ số và đoạn hội thoại trùng khớp.
 *   🎛️ **Bộ lọc Nâng cao (Advanced Filters)**:
@@ -81,8 +81,7 @@ npm run dev
 | Cấp độ | Username | Password |
 | :--- | :--- | :--- |
 | **Admin** | `admin` | `admin123` |
-| **Giảng viên** | `gv001` | `gv001` |
-| **Sinh viên** | `21a4010001` | `student123` |
+
 
 ---
 
