@@ -51,63 +51,73 @@ interface IPlagiarismMatch {
         }, [match.matchedDocumentId, match.fullContent]);
 
         useEffect(() => {
-            // Chỉ scroll nếu chưa scroll lần nào (lần đầu load xong)
-            if (!loading && sourceContent && !hasScrolled.current) {
+            // Scroll to the active highlight whenever match.text changes
+            if (!loading && sourceContent) {
                 const timer = setTimeout(() => {
                     const activeElem = contentRef.current?.querySelector('.highlight-active');
                     if (activeElem) {
                         activeElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        hasScrolled.current = true; // Đánh dấu đã scroll, không scroll lại
                     }
                 }, 300);
                 return () => clearTimeout(timer);
             }
-        }, [loading, sourceContent]);
+        }, [loading, sourceContent, match.text]);
 
         const renderHighlightedSource = (text: string) => {
             if (!text) return null;
             const activeSnippet = (match.text || "").trim();
             const otherSnippets = (match.allSnippets || []).map(s => s.trim()).filter(s => s && s !== activeSnippet && s.length > 8);
-            // 1-to-1 character folding to preserve indices while allowing accent-insensitive search
+            
+            // 1-to-1 character folding to preserve indices. 
+            // VERY IMPORTANT: foldedText.length MUST ALWAYS EQUAL text.length
             const foldChar = (c: string) => {
+                // Return only the base char to keep length same
                 const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd');
-                return f.length > 0 ? f[0] : c;
+                return f.length > 0 ? f[0] : ' ';
             };
 
-            const foldedText = text.split('').map(foldChar).join('').toLowerCase();
+            const foldedSource = text.split('').map(foldChar).join('').toLowerCase();
             const markers = new Uint8Array(text.length);
 
             const markSnippet = (snippet: string, markerType: number) => {
-                if (!snippet || snippet.length < 4) return;
+                if (!snippet || snippet.length < 5) return;
 
-                // Fold the snippet as well for comparison
+                // Normalize snippet using the same 1:1 logic
                 const normSnippet = snippet.split('').map(foldChar).join('').toLowerCase().trim();
+                const words = normSnippet.split(/[^a-z0-9]+/).filter(w => w.length > 0);
+                if (words.length === 0) return;
 
                 try {
-                    // Create pattern: escaping special chars and allowing any non-alphanumeric characters (like punctuation, spaces, newlines) between words.
-                    // This is crucial because backend's exact-match text strips punctuation, but the rendering text still has them!
-                    const pattern = normSnippet
-                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-                        .replace(/\s+/g, '[^a-z0-9A-Z_]+');
+                    // Create a pattern that allows ANY non-word characters between words.
+                    // Join words with a bridge that allows for punctuation, newlines, etc.
+                    const pattern = words
+                        .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                        .join('[^a-z0-9]+');
 
                     const regex = new RegExp(pattern, 'gi');
                     let matchResult;
 
-                    // Search in the FOLDED text which has identical length to original
-                    while ((matchResult = regex.exec(foldedText)) !== null) {
+                    while ((matchResult = regex.exec(foldedSource)) !== null) {
                         const start = matchResult.index;
                         const end = start + matchResult[0].length;
+                        
                         for (let i = start; i < end; i++) {
-                            // Active (1) overrules Secondary (2)
-                            if (markers[i] === 0 || (markerType === 1)) markers[i] = markerType;
+                            if (i < markers.length && (markerType === 1 || markers[i] === 0)) {
+                                markers[i] = markerType;
+                            }
                         }
+                        
                         if (regex.lastIndex === start) regex.lastIndex++;
                     }
                 } catch (e) {
                     console.error("Marker Regex error:", e);
                 }
             };
+
+            // 1. Mark all other snippets as secondary (yellow)
             otherSnippets.forEach(s => markSnippet(s, 2));
+            
+            // 2. Mark current active snippet (overwrites secondary with blue)
             if (activeSnippet) markSnippet(activeSnippet, 1);
 
             const elements: React.ReactNode[] = [];
@@ -117,8 +127,8 @@ interface IPlagiarismMatch {
                 let j = i + 1;
                 while (j < text.length && markers[j] === currentType) j++;
                 const chunk = text.substring(i, j);
-                if (currentType === 1) elements.push(<mark key={key++} className="highlight-active" style={{ background: '#bae7ff', color: '#003a8c', borderRadius: 3, padding: '1px 0', fontWeight: 600, boxShadow: '0 0 0 1px #69c0ff' }}>{chunk}</mark>);
-                else if (currentType === 2) elements.push(<mark key={key++} className="highlight-secondary" style={{ background: '#fff1b8', color: '#613400', borderRadius: 3, padding: '1px 0', boxShadow: '0 0 0 1px #ffd666' }}>{chunk}</mark>);
+                if (currentType === 1) elements.push(<mark key={key++} className="highlight-active" style={{ background: 'rgba(29, 78, 216, 0.15)', color: '#1d4ed8', borderRadius: 4, padding: '2px 0', fontWeight: 700, borderBottom: '2px solid #1d4ed8', boxShadow: '0 2px 8px rgba(29, 78, 216, 0.1)' }}>{chunk}</mark>);
+                else if (currentType === 2) elements.push(<mark key={key++} className="highlight-secondary" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#92400e', borderRadius: 4, padding: '1px 0', borderBottom: '2px solid #f59e0b' }}>{chunk}</mark>);
                 else {
                     elements.push(<span key={key++}>{chunk}</span>);
                 }
@@ -1293,6 +1303,8 @@ const PlagiarismCheckPage: React.FC = () => {
 
                 const isSelected = selectedMatch && selectedMatch.source === seg.source;
                 const className = `highlight-${seg.severity} ${isSelected ? 'highlight-active' : ''}`;
+                const sourceIndex = currentData.matches.findIndex((m: any) => m.source === seg.source) + 1;
+                
                 return (
                     <span
                         key={idx}
@@ -1300,9 +1312,6 @@ const PlagiarismCheckPage: React.FC = () => {
                         onClick={() => {
                             const match = currentData.matches.find((m: any) => m.source === seg.source);
                             if (match) {
-                                // CRITICAL: pass seg.matchedText (text from SOURCE document),
-                                // NOT seg.text (text from submitted document).
-                                // Also collect all matchedText snippets from other segments of the same source
                                 const allMatchedTexts = currentData.detailedAnalysis.segments
                                     .filter((s: any) => s.source === seg.source && s.matchedText)
                                     .map((s: any) => s.matchedText);
@@ -1316,9 +1325,29 @@ const PlagiarismCheckPage: React.FC = () => {
                             }
                         }}
                         id={`match-${idx}`}
-                        title={`Trùng khớp ${seg.score}% từ ${seg.source}`}
+                        title={`Nguồn ${sourceIndex}: Trùng khớp ${seg.score}% từ ${seg.source}`}
+                        style={{ position: 'relative' }}
                     >
                         {seg.text}
+                        {sourceIndex > 0 && (
+                            <sup 
+                                style={{ 
+                                    fontSize: '10px', 
+                                    marginLeft: '2px', 
+                                    background: isSelected ? '#1d4ed8' : (seg.severity === 'high' ? '#ef4444' : (seg.severity === 'medium' ? '#f59e0b' : '#10b981')),
+                                    color: '#white',
+                                    padding: '0 4px',
+                                    borderRadius: '50%',
+                                    fontWeight: 'bold',
+                                    display: 'inline-block',
+                                    lineHeight: '12px',
+                                    color: 'white',
+                                    transform: 'translateY(-2px)'
+                                }}
+                            >
+                                {sourceIndex}
+                            </sup>
+                        )}
                     </span>
                 );
             }

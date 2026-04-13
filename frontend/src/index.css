@@ -241,14 +241,14 @@ h4,
 }
 
 .highlight-high {
-  background-color: #fee2e2;
-  /* light red */
+  background-color: rgba(239, 68, 68, 0.12);
   border-bottom: 2px solid #ef4444;
-  color: #991b1b;
+  color: #b91c1c;
   cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 1px 0;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 2px 0;
   border-radius: 2px;
+  font-weight: 500;
 }
 
 .highlight-high:hover {
@@ -257,14 +257,14 @@ h4,
 }
 
 .highlight-medium {
-  background-color: #fef3c7;
-  /* light yellow */
+  background-color: rgba(245, 158, 11, 0.12);
   border-bottom: 2px solid #f59e0b;
   color: #92400e;
   cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 1px 0;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 2px 0;
   border-radius: 2px;
+  font-weight: 500;
 }
 
 .highlight-medium:hover {
@@ -273,14 +273,14 @@ h4,
 }
 
 .highlight-low {
-  background-color: #ecfdf5;
-  /* light green */
+  background-color: rgba(16, 185, 129, 0.12);
   border-bottom: 2px solid #10b981;
   color: #065f46;
   cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 1px 0;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 2px 0;
   border-radius: 2px;
+  font-weight: 500;
 }
 
 .highlight-low:hover {
@@ -289,12 +289,15 @@ h4,
 }
 
 .highlight-active {
-  background-color: #dbeafe !important;
-  /* light blue */
-  border-bottom: 2px solid #3b82f6 !important;
-  color: #1e40af !important;
-  font-weight: 600;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  background-color: rgba(59, 130, 246, 0.18) !important;
+  border-bottom: 3px solid #1d4ed8 !important;
+  color: #1e3a8a !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3), 0 4px 12px rgba(59, 130, 246, 0.15);
+  padding: 3px 2px !important;
+  border-radius: 4px !important;
+  z-index: 10;
+  position: relative;
 }
 
 .highlight-secondary {
