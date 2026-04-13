@@ -16,14 +16,6 @@ export interface PlagiarismCheckResultDto {
     };
     status: string;
     checkDate: string;
-    aiProbability?: number;
-    aiDetectionLevel?: string;
-    aiAnalysis?: {
-        aiProbability: number;
-        detectionLevel: string;
-        sentences: any[];
-        summary: string;
-    };
     remainingChecksToday: number;
     dailyCheckLimit: number;
 }

@@ -15,9 +15,6 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string? Notes { get; set; }
         public List<PlagiarismMatchDto> Matches { get; set; } = new();
         public DetailedAnalysisDto? DetailedAnalysis { get; set; }
-        public decimal? AiProbability { get; set; }
-        public string? AiDetectionLevel { get; set; }
-        public AiDetectionResultDto? AiAnalysis { get; set; }
     }
 
     public class PlagiarismMatchDto
@@ -50,9 +47,6 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public DetailedAnalysisDto? DetailedAnalysis { get; set; }
         public string Status { get; set; } = "Completed";
         public DateTime CheckDate { get; set; }
-        public decimal? AiProbability { get; set; }
-        public string? AiDetectionLevel { get; set; }
-        public AiDetectionResultDto? AiAnalysis { get; set; }
 
         // Daily limits info
         public int RemainingChecksToday { get; set; }

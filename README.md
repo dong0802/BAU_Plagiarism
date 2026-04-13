@@ -1,128 +1,96 @@
-# 🎓 Hệ thống Kiểm tra Đạo văn & Phát hiện AI - Học viện Ngân hàng (BAU)
+# 🎓 Hệ thống Kiểm tra Đạo văn BAV - Banking Academy of Vietnam
 
-## 📋 Tổng quan
+Hệ thống kiểm tra đạo văn chuyên nghiệp được thiết kế riêng cho **Học viện Ngân hàng (BAV)**, giúp đảm bảo tính liêm chính học thuật và hỗ trợ giảng viên, sinh viên trong việc đối soát tài liệu.
 
-Hệ thống kiểm tra đạo văn và nhận diện nội dung AI (ChatGPT, Gemini,...) tự động dành cho Học viện Ngân hàng, hỗ trợ:
-- ✅ **Kiểm tra Đạo văn**: So sánh văn bản với kho dữ liệu nội bộ và Internet.
-- ✅ **Nhận diện AI**: Phân tích nội dung tạo bởi trí tuệ nhân tạo thông qua chỉ số Perplexity & Burstiness.
-- ✅ **Đối chiếu Song song**: Hiển thị Side-by-Side với highlight toàn bộ đoạn trùng khớp (Full-text logic).
-- ✅ **Phân quyền**: Giảng viên / Sinh viên / Admin với chức năng riêng biệt.
-- ✅ **Quản lý danh mục**: Khoa, Bộ môn, Môn học, Lớp học.
-- ✅ **Thuật toán NLP**: N-gram, Cosine Similarity tối ưu cho xử lý tiếng Việt.
-- ✅ **Hệ thống Credits**: Giới hạn lượt kiểm tra bài làm hàng ngày cho sinh viên (mặc định 5 lượt/ngày).
+---
 
-## 🏗️ Kiến trúc hệ thống
+## ✨ Tính năng nổi bật
 
-### **1. Backend (ASP.NET Core 9.0 Web API)**
-```
-BAU_Plagiarism/
-├── BAU_Plagiarism_System.API/        # Tầng API & Cấu hình Web
-│   ├── Controllers/                   # Các điều hướng API chính
-│   │   ├── AuthController.cs         # Đăng nhập, đăng ký, profile
-│   │   ├── CatalogController.cs      # Quản lý Khoa/Bộ môn/Môn học
-│   │   ├── UsersController.cs        # Quản lý người dùng & Credits
-│   │   ├── DocumentsController.cs    # Upload/Download & Full-text source
-│   │   └── PlagiarismController.cs   # Engine kiểm tra & Lịch sử bài làm
-│   └── Program.cs                    # Cấu hình Startup, JWT & DI
-│
-├── BAU_Plagiarism_System.Core/       # Tầng Xử lý Nghiệp vụ Logic
-│   ├── Services/                     # Application Services
-│   │   ├── PlagiarismService.cs      # Điều phối tiến trình kiểm tra
-│   │   ├── TextProcessor.cs          # Tiền xử lý (Tokenizing, stop words)
-│   │   ├── SimilarityChecker.cs      # Engine tính toán % trùng lặp
-│   │   ├── AiDetectionService.cs     # Engine nhận diện AI nội bộ
-│   │   └── DocumentReader.cs         # Đọc trích xuất file Word/PDF
-│
-└── BAU_Plagiarism_System.Data/       # Tầng Truy cập Dữ liệu (ORM)
-    ├── Models/                       # Các thực thể Database (User, Document,...)
-    └── BAUDbContext.cs               # Entity Framework DbContext & Seeding
-```
+*   🚀 **Phát hiện Đạo văn Thông minh**: So khớp văn bản với kho dữ liệu nội bộ cực lớn (luận văn, tiểu luận, giáo trình) và Internet.
+*   🔍 **So sánh Chéo 1-vs-1**: Công cụ đối soát trực tiếp 2 tài liệu bất kỳ trong hệ thống để tìm kiếm sự trùng lặp chi tiết.
+*   📄 **Báo cáo Chuyên nghiệp**: Xuất báo cáo kết quả kiểm tra dưới định dạng HTML/PDF đẹp mắt, đầy đủ các chỉ số và đoạn hội thoại trùng khớp.
+*   🎛️ **Bộ lọc Nâng cao (Advanced Filters)**:
+    *   Loại trừ trích dẫn (Quotes).
+    *   Loại trừ mục lục tham khảo (Bibliography).
+    *   Loại trừ các nguồn có tỷ lệ trùng khớp thấp (dưới ngưỡng tối thiểu).
+*   🖥️ **Trình xem Kết quả Focus Mode**: Giao diện side-by-side hiển thị trực quan đoạn văn trùng khớp và nguồn tương ứng, tự động tối ưu không gian làm việc.
+*   📊 **Phân tích Chất lượng (Quality Analysis)**: Đánh giá độ mạch lạc, vốn từ, lỗi trình bày và cấu trúc của tài liệu.
+*   🛡️ **Phân quyền & Bảo mật**: Phân quyền chi tiết cho Admin, Giảng viên và Sinh viên. Bảo vệ quyền riêng tư cho các bài nộp của sinh viên.
+*   💳 **Quản lý Credit**: Hệ thống giới hạn lượt kiểm tra hàng ngày cho sinh viên để tối ưu tài nguyên hệ thống.
 
-### **2. Frontend (React 18 + Vite)**
-Giao diện người dùng hiện đại, Dashboard thống kê và trình xem so khớp chi tiết.
-- `frontend/src/pages/`: PlagiarismCheckPage, HistoryPage, LoginPage,...
-- `frontend/src/api/`: Axios client cấu hình gọi API.
-- `frontend/src/store/`: Redux Toolkit quản lý User-Session & Credits.
+---
 
-## 🛠️ Công nghệ sử dụng
+## 🏗️ Kiến trúc Hệ thống
 
-- **Backend**: C# 12, ASP.NET Core 9, Entity Framework Core, SQL Server 2022.
-- **Frontend**: TypeScript, React 18, Vite, Ant Design (AntD), Framer Motion.
-- **Bảo mật**: JWT Bearer Token, Password Hashing (BCrypt).
-- **Phát hiện AI**: Thuật toán phân tích Perplexity (độ dễ đoán) và Burstiness (biến thiên văn phong).
+### **1. Backend (ASP.NET Core Web API)**
+*   `BAU_Plagiarism_System.API`: Tầng xử lý Request, quản lý JWT Auth, Controllers và cấu hình Web.
+*   `BAU_Plagiarism_System.Core`: Tầng Business Logic chính.
+    *   `SimilarityChecker`: Engine thực hiện giải thuật N-gram song song để tìm kiếm trùng lặp.
+    *   `PlagiarismService`: Điều phối nghiệp vụ kiểm tra và quản lý lịch sử.
+    *   `DocumentReader`: Trích xuất nội dung từ file `.docx`, `.pdf`, `.txt`.
+    *   `DocumentQualityService`: Engine đánh giá chất lượng văn bản tự động.
+*   `BAU_Plagiarism_System.Data`: Tầng ORM (Entity Framework Core) quản lý kết nối SQL Server và Migrations.
 
-## 🚀 Hướng dẫn cài đặt
+### **2. Frontend (React + TypeScript)**
+*   Sử dụng **Vite** để tối ưu tốc độ build.
+*   Sử dụng **Ant Design (AntD) 5** cho giao diện hiện đại, cao cấp.
+*   Quản lý State bằng **Redux Toolkit**.
 
-### **Yêu cầu hệ thống**
-- .NET 9.0 SDK
-- Node.js 18+ & rpm/npm
-- SQL Server 2019+
-- Visual Studio 2022
+---
 
-### **Bước 1: Cấu hình Database**
-1. Mở SQL Server Management Studio (SSMS).
-2. Chạy script [CreateDatabase.sql](file:///c:/BAU_Plagiarism/CreateDatabase.sql) để tạo database.
-3. Cập nhật Connection String trong `appsettings.json` tại thư mục API.
+## 🛠️ Công nghệ Sử dụng
 
-### **Bước 2: Chạy Backend**
+*   **Ngôn ngữ**: C# (.NET 8.0/9.0), TypeScript.
+*   **Database**: Microsoft SQL Server 2022.
+*   **Thư viện chính**:
+    *   Backend: Entity Framework Core, Hangfire (xử lý nền), iTextSharp (PDF), DocX (Word).
+    *   Frontend: React 18, Ant Design, Framer Motion (hiệu ứng), React-Redux.
+
+---
+
+## 🚀 Hướng dẫn Cài đặt
+
+### **Yêu cầu**
+*   .NET SDK (phiên bản 8.0 trở lên).
+*   Node.js (phiên bản 18 trở lên).
+*   SQL Server.
+
+### **Bước 1: Khởi tạo Cơ sở dữ liệu**
+1.  Kết nối tới SQL Server của bạn.
+2.  Chạy script khởi tạo: [CreateDatabase.sql](file:///c:/BAU_Plagiarism/CreateDatabase.sql). 
+    *   *Lưu ý: Script này đã được cập nhật để loại bỏ các tính năng không cần thiết (Check AI).*
+3.  Cập nhật Connection String trong `BAU_Plagiarism_System.API/appsettings.json`.
+
+### **Bước 2: Khởi chạy Backend**
 ```bash
-# Sử dụng Visual Studio 2022
-# Hoặc dùng command line:
 cd BAU_Plagiarism_System.API
 dotnet run
 ```
-Backend sẽ được kích hoạt tại: **`http://127.0.0.1:5200`**
 
-### **Bước 3: Chạy Frontend**
+### **Bước 3: Khởi chạy Frontend**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Giao diện ứng dụng sẽ chạy tại: **`http://localhost:3000`**
 
 ---
 
-## 📚 API Endpoints chính
+## 👥 Tài khoản Thử nghiệm (Mặc định)
 
-### **Xác thực & Người dùng**
-- `POST /api/auth/login` - Đăng nhập tài khoản
-- `GET /api/users/me/credits` - Lấy thông tin lượt dùng (Credits) hiện tại
-
-### **Tài liệu & Kiểm tra**
-- `POST /api/documents/upload` - Tải lên văn bản/file Word mới
-- `POST /api/plagiarism/check` - Thực hiện kiểm tra đạo văn & AI tổng hợp
-- `GET /api/documents/{id}/content` - Lấy toàn văn tài liệu gốc để đối soát full-text
-
----
-
-## 👥 Tài khoản thử nghiệm (Mặc định sau Seed)
-
-| Vai trò | Username | Password |
+| Cấp độ | Username | Password |
 | :--- | :--- | :--- |
 | **Admin** | `admin` | `admin123` |
 | **Giảng viên** | `gv001` | `gv001` |
 | **Sinh viên** | `21a4010001` | `student123` |
 
-## 🎯 Quy chuẩn đánh giá (BAU Regulation)
-
-- **An toàn (Safe)**: < 20% trùng khớp.
-- **Cảnh báo (Warning)**: 20% - 40% trùng khớp.
-- **Vi phạm (Violation)**: > 40% trùng khớp.
-
-## 📊 Phân tích Phát hiện AI
-
-- **Xác suất AI (AI Probability)**: 
-    - **Thấp (< 30%)**: Văn bản tự nhiên.
-    - **Trung bình (30-70%)**: Nghi ngờ có sự can thiệp của AI Tools.
-    - **Cao (> 70%)**: Khả năng cao được tạo hoàn toàn bởi AI.
-
 ---
 
-## 📞 Liên hệ hỗ trợ
+## 🎯 Quy định về Đạo văn (BAV Regulations)
 
-- **Email**: support@bau.edu.vn
-- **Website**: [https://bau.edu.vn](https://bau.edu.vn)
+*   **Dưới 20%**: An toàn (✅).
+*   **Từ 20% - 40%**: Cần xem xét/Cảnh báo (⚠️).
+*   **Trên 40%**: Vi phạm nghiêm trọng (❌).
 
 ---
-**© 2024 Banking Academy of Vietnam - BAU Plagiarism Detection System**
+**© 2024 Banking Academy of Vietnam - Developed by BAV Tech Team**
