@@ -120,4 +120,10 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public int DocumentCount { get; set; }
         public decimal AverageSimilarity { get; set; }
     }
+
+    public class Compare1v1RequestDto
+    {
+        public int Document1Id { get; set; }
+        public int Document2Id { get; set; }
+    }
 }

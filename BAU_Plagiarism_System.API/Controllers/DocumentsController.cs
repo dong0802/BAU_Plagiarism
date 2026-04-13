@@ -32,7 +32,10 @@ namespace BAU_Plagiarism_System.API.Controllers
                 userId = currentUserId;
             }
 
-            var documents = await _documentService.GetAllDocumentsAsync(userId, subjectId, documentType);
+            // Admin/Lecturer: exclude student-uploaded documents from the repository
+            bool excludeStudentDocs = userRole != "Student" && !userId.HasValue;
+
+            var documents = await _documentService.GetAllDocumentsAsync(userId, subjectId, documentType, excludeStudentDocs);
             return Ok(documents);
         }
 

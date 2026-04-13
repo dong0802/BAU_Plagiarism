@@ -484,5 +484,66 @@ namespace BAU_Plagiarism_System.Core.Services
 
             return sentences;
         }
+
+        /// <summary>
+        /// So sánh trực tiếp 2 tài liệu (1vs1)
+        /// </summary>
+        public async Task<PlagiarismCheckDto> Compare1v1Async(int doc1Id, int doc2Id)
+        {
+            var doc1 = await _context.Documents
+                .Include(d => d.User)
+                .FirstOrDefaultAsync(d => d.Id == doc1Id);
+            var doc2 = await _context.Documents
+                .Include(d => d.User)
+                .FirstOrDefaultAsync(d => d.Id == doc2Id);
+
+            if (doc1 == null || doc2 == null)
+                throw new Exception("Không tìm thấy tài liệu để so sánh");
+
+            // Sử dụng SimilarityChecker để so sánh chi tiết
+            var analysis = _similarityChecker.AnalyzeDetailed(doc1.Content ?? "", new List<Document> { doc2 });
+
+            return new PlagiarismCheckDto
+            {
+                Id = 0, // Không lưu vào DB nên ID = 0
+                SourceDocumentId = doc1Id,
+                SourceDocumentTitle = doc1.Title,
+                UserId = doc1.UserId,
+                UserName = doc1.User?.FullName ?? "N/A",
+                CheckDate = DateTime.Now,
+                OverallSimilarityPercentage = (decimal)analysis.OverallScore,
+                Status = "Completed",
+                TotalMatchedDocuments = analysis.OverallScore > 0 ? 1 : 0,
+                DetailedAnalysis = new DetailedAnalysisDto
+                {
+                    OverallScore = analysis.OverallScore,
+                    Segments = analysis.Segments.Select(s => new SegmentDto
+                    {
+                        Text = s.Text,
+                        MatchedText = s.MatchedText,
+                        StartPosition = s.StartPosition,
+                        EndPosition = s.EndPosition,
+                        Score = s.Score,
+                        Source = s.Source,
+                        IsExcluded = s.IsExcluded,
+                        ExclusionReason = s.ExclusionReason
+                    }).ToList()
+                },
+                Matches = analysis.Segments
+                    .Where(s => s.Score > 0)
+                    .Select(s => new PlagiarismMatchDto
+                    {
+                        MatchedDocumentId = doc2Id,
+                        MatchedDocumentTitle = doc2.Title,
+                        MatchedText = s.MatchedText ?? s.Text,
+                        SimilarityScore = (decimal)s.Score,
+                        StartPosition = s.StartPosition,
+                        EndPosition = s.EndPosition,
+                        Author = doc2.User?.Username,
+                        AuthorName = doc2.User?.FullName,
+                        FullContent = doc2.Content
+                    }).ToList()
+            };
+        }
     }
 }

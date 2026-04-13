@@ -25,7 +25,7 @@ namespace BAU_Plagiarism_System.Core.Services
                 Directory.CreateDirectory(_uploadPath);
         }
 
-        public async Task<List<DocumentDto>> GetAllDocumentsAsync(int? userId = null, int? subjectId = null, string? documentType = null)
+        public async Task<List<DocumentDto>> GetAllDocumentsAsync(int? userId = null, int? subjectId = null, string? documentType = null, bool excludeStudentDocs = false)
         {
             var query = _context.Documents
                 .Include(d => d.User)
@@ -36,6 +36,10 @@ namespace BAU_Plagiarism_System.Core.Services
 
             if (userId.HasValue)
                 query = query.Where(d => d.UserId == userId.Value);
+
+            // Exclude documents uploaded by students (for admin/lecturer repository view)
+            if (excludeStudentDocs)
+                query = query.Where(d => d.User.Role != "Student");
 
             if (subjectId.HasValue)
                 query = query.Where(d => d.SubjectId == subjectId.Value);

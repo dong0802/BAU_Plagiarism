@@ -114,5 +114,24 @@ namespace BAU_Plagiarism_System.API.Controllers
             var checks = await _plagiarismService.GetHighRiskChecksAsync(threshold, limit);
             return Ok(checks);
         }
+        /// <summary>
+        /// So sánh trực tiếp 2 tài liệu (1vs1)
+        /// </summary>
+        [HttpPost("compare-1v1")]
+        public async Task<ActionResult<PlagiarismCheckDto>> Compare1v1([FromBody] Compare1v1RequestDto dto)
+        {
+            try
+            {
+                if (dto.Document1Id <= 0 || dto.Document2Id <= 0)
+                    return BadRequest(new { message = "ID tài liệu không hợp lệ" });
+
+                var result = await _plagiarismService.Compare1v1Async(dto.Document1Id, dto.Document2Id);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
     }
 }

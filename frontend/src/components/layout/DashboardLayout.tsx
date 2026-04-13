@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Avatar, Dropdown, Space, Typography } from 'antd';
 import {
     DashboardOutlined,
@@ -25,6 +25,16 @@ const DashboardLayout: React.FC = () => {
     const location = useLocation();
     const dispatch = useDispatch();
     const { user } = useSelector((state: RootState) => state.auth);
+
+    // Listen for sidebar-collapse events from child pages
+    useEffect(() => {
+        const handleSidebarCollapse = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            setCollapsed(customEvent.detail?.collapsed ?? false);
+        };
+        window.addEventListener('sidebar-collapse', handleSidebarCollapse);
+        return () => window.removeEventListener('sidebar-collapse', handleSidebarCollapse);
+    }, []);
 
     const handleLogout = () => {
         dispatch(logout());

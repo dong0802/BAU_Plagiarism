@@ -57,6 +57,15 @@ const DocumentListPage: React.FC = () => {
     const [compareCalculating, setCompareCalculating] = useState(false);
     const [compareResult, setCompareResult] = useState<any>(null);
 
+    // Collapse sidebar when comparison result is shown
+    useEffect(() => {
+        if (compareResult) {
+            window.dispatchEvent(new CustomEvent('sidebar-collapse', { detail: { collapsed: true } }));
+        } else {
+            window.dispatchEvent(new CustomEvent('sidebar-collapse', { detail: { collapsed: false } }));
+        }
+    }, [compareResult]);
+
     const [stats, setStats] = useState<PlagiarismStatisticsDto | null>(null);
 
     const fetchDocuments = async () => {
@@ -638,101 +647,220 @@ const DocumentListPage: React.FC = () => {
                 </div>
             </Modal>
 
-            {/* Cross-check Modal */}
+            {/* Cross-check Selection Modal */}
             <Modal
-                title={<Space><BlockOutlined style={{ color: '#722ed1' }}/> <span>Công cụ So sánh chéo trực tiếp (Cross-check 1-vs-1)</span></Space>}
-                open={compareVisible}
+                title={<Space><BlockOutlined style={{ color: '#722ed1' }} /> <span>Công cụ So sánh chéo trực tiếp (Cross-check 1-vs-1)</span></Space>}
+                open={compareVisible && !compareResult}
                 onCancel={() => setCompareVisible(false)}
                 footer={null}
                 width={800}
                 centered
             >
-                {!compareResult ? (
-                    <div style={{ padding: '20px 0' }}>
-                        <div style={{ background: '#f0faff', padding: 16, borderRadius: 8, marginBottom: 24 }}>
-                            <Text type="secondary"><InfoCircleOutlined /> Công cụ thực tế giúp bạn phát hiện việc mượn ý tưởng trực tiếp giữa 2 tài liệu với nhau, nhanh chóng và chính xác.</Text>
+                <div style={{ padding: '20px 0' }}>
+                    <div style={{ background: '#f0faff', padding: 16, borderRadius: 8, marginBottom: 24 }}>
+                        <Text type="secondary"><InfoCircleOutlined /> Công cụ thực tế giúp bạn phát hiện việc mượn ý tưởng trực tiếp giữa 2 tài liệu với nhau, nhanh chóng và chính xác.</Text>
+                    </div>
+                    <Row gutter={24} align="middle">
+                        <Col span={10}>
+                            <Text strong>Tài liệu A (Nguồn):</Text>
+                            <Select
+                                showSearch
+                                style={{ width: '100%', marginTop: 8 }}
+                                placeholder="Chọn tài liệu gốc"
+                                optionFilterProp="children"
+                                filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
+                                value={doc1Id}
+                                onChange={setDoc1Id}
+                            >
+                                {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
+                            </Select>
+                        </Col>
+                        <Col span={4} style={{ textAlign: 'center', fontSize: 24, marginTop: 24 }}>
+                            ⚔️
+                        </Col>
+                        <Col span={10}>
+                            <Text strong>Tài liệu B (Đối chiếu):</Text>
+                            <Select
+                                showSearch
+                                style={{ width: '100%', marginTop: 8 }}
+                                placeholder="Chọn tài liệu cần so sánh"
+                                optionFilterProp="children"
+                                filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
+                                value={doc2Id}
+                                onChange={setDoc2Id}
+                            >
+                                {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
+                            </Select>
+                        </Col>
+                    </Row>
+                    <div style={{ textAlign: 'center', marginTop: 40 }}>
+                        <Button
+                            type="primary" size="large"
+                            style={{ background: '#722ed1', border: 'none', width: 250 }}
+                            disabled={!doc1Id || !doc2Id || doc1Id === doc2Id}
+                            loading={compareCalculating}
+                            onClick={async () => {
+                                setCompareCalculating(true);
+                                try {
+                                    const res = await plagiarismApi.compare1v1({ document1Id: doc1Id!, document2Id: doc2Id! });
+                                    setCompareResult(res);
+                                    setCompareVisible(false);
+                                } catch (e: any) {
+                                    message.error("Lỗi khi so sánh: " + (e.message || "Vui lòng khởi động lại Server API để nhận tính năng mới."));
+                                } finally {
+                                    setCompareCalculating(false);
+                                }
+                            }}
+                        >
+                            Thực hiện so sánh
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Full-screen comparison result Modal */}
+            <Modal
+                title={<Space><BlockOutlined style={{ color: '#722ed1' }} /> <span>Kết quả So sánh chéo 1-vs-1</span></Space>}
+                open={!!compareResult}
+                onCancel={() => setCompareResult(null)}
+                footer={<div style={{ textAlign: 'center' }}><Button onClick={() => setCompareResult(null)} icon={<BlockOutlined />}>Đóng kết quả</Button></div>}
+                width={'95vw'}
+                style={{ top: 20, maxWidth: 1600 }}
+                styles={{ body: { padding: '12px 16px' } }}
+            >
+                {compareResult && (
+                    <div>
+                        {/* Header: Score + Document Names */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, background: 'linear-gradient(135deg, #f0f5ff, #e6f7ff)', padding: '10px 16px', borderRadius: 10 }}>
+                            <div style={{ textAlign: 'right', flex: 1, minWidth: 0 }}>
+                                <Text strong style={{ display: 'block', fontSize: 13, color: '#1890ff' }}>{documents.find(d => d.id === doc1Id)?.title}</Text>
+                                <Tag color="blue" style={{ marginTop: 2, fontSize: 11 }}>Tài liệu A</Tag>
+                            </div>
+                            <div style={{ flexShrink: 0 }}>
+                                <div style={{
+                                    width: 56, height: 56, borderRadius: '50%',
+                                    background: compareResult.overallSimilarityPercentage > 30 ? '#ff4d4f' : compareResult.overallSimilarityPercentage > 15 ? '#faad14' : '#52c41a',
+                                    display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
+                                    color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                                }}>
+                                    <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>{compareResult.overallSimilarityPercentage?.toFixed(1)}</span>
+                                    <span style={{ fontSize: 9 }}>%</span>
+                                </div>
+                            </div>
+                            <div style={{ textAlign: 'left', flex: 1, minWidth: 0 }}>
+                                <Text strong style={{ display: 'block', fontSize: 13, color: '#722ed1' }}>{documents.find(d => d.id === doc2Id)?.title}</Text>
+                                <Tag color="purple" style={{ marginTop: 2, fontSize: 11 }}>Tài liệu B</Tag>
+                            </div>
+                            <Divider type="vertical" style={{ height: 32 }} />
+                            <Space size={4}><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(255,77,79,0.3)', borderBottom: '2px solid #ff4d4f', borderRadius: 2 }}></span><Text type="secondary" style={{ fontSize: 11 }}>Cao</Text></Space>
+                            <Space size={4}><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(250,173,20,0.3)', borderBottom: '2px solid #faad14', borderRadius: 2 }}></span><Text type="secondary" style={{ fontSize: 11 }}>Vừa</Text></Space>
+                            <Space size={4}><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(24,144,255,0.25)', borderBottom: '2px solid #1890ff', borderRadius: 2 }}></span><Text type="secondary" style={{ fontSize: 11 }}>Thấp</Text></Space>
                         </div>
-                        <Row gutter={24} align="middle">
-                            <Col span={10}>
-                                <Text strong>Tài liệu A (Nguồn):</Text>
-                                <Select
-                                    showSearch
-                                    style={{ width: '100%', marginTop: 8 }}
-                                    placeholder="Chọn tài liệu gốc"
-                                    optionFilterProp="children"
-                                    filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
-                                    value={doc1Id}
-                                    onChange={setDoc1Id}
-                                >
-                                    {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
-                                </Select>
+
+                        {/* Side-by-side document view */}
+                        <Row gutter={8}>
+                            <Col span={12}>
+                                <div style={{ borderRadius: 8, border: '1px solid #d9e8ff', overflow: 'hidden' }}>
+                                    <div style={{ background: '#1890ff', color: 'white', padding: '6px 12px', fontWeight: 600, fontSize: 12 }}>
+                                        📄 Tài liệu A — Văn bản nguồn
+                                    </div>
+                                    <div className="custom-scrollbar" style={{ padding: 14, height: 'calc(100vh - 280px)', overflowY: 'auto', lineHeight: 1.8, fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#fff' }}>
+                                        {compareResult.detailedAnalysis?.segments?.length > 0 ? (
+                                            compareResult.detailedAnalysis.segments.map((seg: any, idx: number) => {
+                                                if (seg.isExcluded) {
+                                                    return <span key={idx} style={{ color: '#bfbfbf' }}>{seg.text}</span>;
+                                                }
+                                                if (seg.score > 0) {
+                                                    const bgColor = seg.score > 80 ? 'rgba(255,77,79,0.18)' : seg.score > 50 ? 'rgba(250,173,20,0.2)' : 'rgba(24,144,255,0.15)';
+                                                    const borderColor = seg.score > 80 ? '#ff4d4f' : seg.score > 50 ? '#faad14' : '#1890ff';
+                                                    return (
+                                                        <Tooltip key={idx} title={`Trùng ${seg.score.toFixed(0)}%`} color={borderColor}>
+                                                            <span style={{
+                                                                background: bgColor,
+                                                                borderBottom: `2px solid ${borderColor}`,
+                                                                borderRadius: 2,
+                                                                padding: '1px 0',
+                                                                cursor: 'pointer'
+                                                            }}>{seg.text}</span>
+                                                        </Tooltip>
+                                                    );
+                                                }
+                                                return <span key={idx}>{seg.text}</span>;
+                                            })
+                                        ) : (
+                                            <Empty description="Không có dữ liệu phân tích" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                                        )}
+                                    </div>
+                                </div>
                             </Col>
-                            <Col span={4} style={{ textAlign: 'center', fontSize: 24, marginTop: 24 }}>
-                                ⚔️
-                            </Col>
-                            <Col span={10}>
-                                <Text strong>Tài liệu B (Đối chiếu):</Text>
-                                <Select
-                                    showSearch
-                                    style={{ width: '100%', marginTop: 8 }}
-                                    placeholder="Chọn tài liệu cần so sánh"
-                                    optionFilterProp="children"
-                                    filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
-                                    value={doc2Id}
-                                    onChange={setDoc2Id}
-                                >
-                                    {documents.map(d => <Option key={d.id} value={d.id}>{d.title}</Option>)}
-                                </Select>
+                            <Col span={12}>
+                                <div style={{ borderRadius: 8, border: '1px solid #e8d5f5', overflow: 'hidden' }}>
+                                    <div style={{ background: '#722ed1', color: 'white', padding: '6px 12px', fontWeight: 600, fontSize: 12 }}>
+                                        📄 Tài liệu B — Đối chiếu
+                                    </div>
+                                    <div className="custom-scrollbar" style={{ padding: 14, height: 'calc(100vh - 280px)', overflowY: 'auto', lineHeight: 1.8, fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#fff' }}>
+                                        {(() => {
+                                            const docBContent = compareResult.matches?.[0]?.fullContent;
+                                            if (!docBContent) return <Text type="secondary">Nội dung tài liệu B không khả dụng.</Text>;
+
+                                            const matchedTexts: string[] = compareResult.matches
+                                                ?.map((m: any) => m.matchedText)
+                                                .filter((t: string) => t && t.length > 8) || [];
+
+                                            if (matchedTexts.length === 0) return <span>{docBContent}</span>;
+
+                                            const foldChar = (c: string) => {
+                                                const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd');
+                                                return f.length > 0 ? f[0] : c;
+                                            };
+                                            const foldedContent = docBContent.split('').map(foldChar).join('').toLowerCase();
+                                            const markers = new Uint8Array(docBContent.length);
+
+                                            matchedTexts.forEach((snippet: string) => {
+                                                if (!snippet || snippet.length < 4) return;
+                                                const normSnippet = snippet.split('').map(foldChar).join('').toLowerCase().trim();
+                                                try {
+                                                    const pattern = normSnippet
+                                                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                                                        .replace(/\s+/g, '[^a-z0-9A-Z_]+');
+                                                    const regex = new RegExp(pattern, 'gi');
+                                                    let matchRes;
+                                                    while ((matchRes = regex.exec(foldedContent)) !== null) {
+                                                        for (let i = matchRes.index; i < matchRes.index + matchRes[0].length; i++) {
+                                                            markers[i] = 1;
+                                                        }
+                                                        if (regex.lastIndex === matchRes.index) regex.lastIndex++;
+                                                    }
+                                                } catch (_e) { /* ignore regex errors */ }
+                                            });
+
+                                            const elements: React.ReactNode[] = [];
+                                            let i = 0, key = 0;
+                                            while (i < docBContent.length) {
+                                                const currentType = markers[i];
+                                                let j = i + 1;
+                                                while (j < docBContent.length && markers[j] === currentType) j++;
+                                                const chunk = docBContent.substring(i, j);
+                                                if (currentType === 1) {
+                                                    elements.push(
+                                                        <span key={key++} style={{
+                                                            background: 'rgba(114,46,209,0.15)',
+                                                            borderBottom: '2px solid #722ed1',
+                                                            borderRadius: 2,
+                                                            padding: '1px 0'
+                                                        }}>{chunk}</span>
+                                                    );
+                                                } else {
+                                                    elements.push(<span key={key++}>{chunk}</span>);
+                                                }
+                                                i = j;
+                                            }
+                                            return elements;
+                                        })()}
+                                    </div>
+                                </div>
                             </Col>
                         </Row>
-                        <div style={{ textAlign: 'center', marginTop: 40 }}>
-                            <Button 
-                                type="primary" size="large" 
-                                style={{ background: '#722ed1', border: 'none', width: 250 }}
-                                disabled={!doc1Id || !doc2Id || doc1Id === doc2Id}
-                                loading={compareCalculating}
-                                onClick={async () => {
-                                    setCompareCalculating(true);
-                                    try {
-                                        const res = await plagiarismApi.compare1v1({ document1Id: doc1Id!, document2Id: doc2Id! });
-                                        setCompareResult(res);
-                                    } catch (e: any) {
-                                        message.error("Lỗi khi so sánh: " + (e.message || "Vui lòng khởi động lại Server API để nhận tính năng mới."));
-                                    } finally {
-                                        setCompareCalculating(false);
-                                    }
-                                }}
-                            >
-                                Thực hiện so sánh
-                            </Button>
-                        </div>
-                    </div>
-                ) : (
-                    <div style={{ padding: '20px 0' }}>
-                        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                            <div style={{ fontSize: 60, fontWeight: 'bold', color: compareResult.overallScore > 20 ? '#ff4d4f' : '#52c41a' }}>
-                                {compareResult.overallScore.toFixed(1)}%
-                            </div>
-                            <Text style={{ fontSize: 18 }}>Tỷ lệ Trùng Lặp Giữa 2 Tài Liệu</Text>
-                        </div>
-
-                        <Divider>Đoạn văn bị trùng lặp điển hình</Divider>
-                        
-                        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                            {compareResult.matches && compareResult.matches.length > 0 ? (
-                                compareResult.matches.map((m: any, idx: number) => (
-                                    <div key={idx} style={{ background: '#fffbe6', padding: 12, borderLeft: '4px solid #faad14', marginBottom: 12 }}>
-                                        <Text>"{m.matchedText}"</Text>
-                                    </div>
-                                ))
-                            ) : (
-                                <Empty description="Tài liệu hoàn toàn trong sạch, không có đoạn nào giống nhau!" />
-                            )}
-                        </div>
-
-                        <div style={{ textAlign: 'center', marginTop: 24 }}>
-                            <Button onClick={() => setCompareResult(null)}>Thử nghiệm file khác</Button>
-                        </div>
                     </div>
                 )}
             </Modal>
