@@ -1335,13 +1335,12 @@ const PlagiarismCheckPage: React.FC = () => {
                                     fontSize: '10px', 
                                     marginLeft: '2px', 
                                     background: isSelected ? '#1d4ed8' : (seg.severity === 'high' ? '#ef4444' : (seg.severity === 'medium' ? '#f59e0b' : '#10b981')),
-                                    color: '#white',
+                                    color: 'white',
                                     padding: '0 4px',
                                     borderRadius: '50%',
                                     fontWeight: 'bold',
                                     display: 'inline-block',
                                     lineHeight: '12px',
-                                    color: 'white',
                                     transform: 'translateY(-2px)'
                                 }}
                             >
