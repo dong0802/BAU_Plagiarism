@@ -357,13 +357,25 @@ const PlagiarismCheckPage: React.FC = () => {
             }
         });
 
-        // Tổng % đạo văn = tổng % đóng góp của các nguồn >= 1.0% (giống backend CalculateOverallScore)
-        const finalScore = parseFloat(
-            currentMatches
+        // ============================================================
+        // Tính tổng % đạo văn sau khi filter:
+        // - Nếu KHÔNG có filter nào bật → dùng result.score từ DB (nguồn tin cậy)
+        // - Nếu CÓ filter → tính theo tỷ lệ word-count đã filter, điều chỉnh
+        //   so với DB score để tránh sai lệch quá lớn
+        // ============================================================
+        const noFiltersActive = !excludeQuotes && !excludeBibliography && excludeType === 'none';
+
+        let finalScore: number;
+        if (noFiltersActive) {
+            // Không filter: dùng nguyên giá trị DB
+            finalScore = result.score;
+        } else {
+            // Có filter: tính lại từ word-count (tương đối so với baseline)
+            const activeMatchesSimilaritySum = currentMatches
                 .filter((m: any) => m.similarity >= 1.0)
-                .reduce((sum: number, m: any) => sum + m.similarity, 0)
-                .toFixed(1)
-        );
+                .reduce((sum: number, m: any) => sum + m.similarity, 0);
+            finalScore = parseFloat(activeMatchesSimilaritySum.toFixed(1));
+        }
 
         // 5. Update UI state with recalculated data
         setFilteredResult({
@@ -561,17 +573,23 @@ const PlagiarismCheckPage: React.FC = () => {
         // Sort by contribution %
         consolidatedMatches.sort((a, b) => b.similarity - a.similarity);
 
-        // Tổng % đạo văn = tổng % đóng góp của các nguồn >= 1.0% (khớp với backend CalculateOverallScore)
-        let exactTotalSum = 0;
-        consolidatedMatches.forEach(m => {
-            if (m.similarity >= 1.0) {
-                exactTotalSum += m.similarity;
-            }
-        });
-        exactTotalSum = parseFloat(exactTotalSum.toFixed(1));
+        // ============================================================
+        // QUAN TRỌNG: Dùng overallSimilarityPercentage từ DB làm nguồn
+        // tin cậy duy nhất cho tổng % đạo văn. Đây là giá trị được tính
+        // bởi backend khi chạy kiểm tra và lưu vào DB. Tránh tính lại
+        // từ frontend vì sẽ dẫn đến sai lệch với lịch sử.
+        // ============================================================
+        const authorativeScore = detail.overallSimilarityPercentage != null
+            ? parseFloat(parseFloat(detail.overallSimilarityPercentage).toFixed(1))
+            : (() => {
+                // Fallback: tính từ frontend nếu không có giá trị DB (e.g. 1vs1 check)
+                let sum = 0;
+                consolidatedMatches.forEach(m => { if (m.similarity >= 1.0) sum += m.similarity; });
+                return parseFloat(sum.toFixed(1));
+            })();
 
         setResult({
-            score: exactTotalSum,
+            score: authorativeScore,
             matchedDocs: consolidatedMatches.length,
             detailedAnalysis: { segments },
             matches: consolidatedMatches
