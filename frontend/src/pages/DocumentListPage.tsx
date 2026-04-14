@@ -676,7 +676,7 @@ const DocumentListPage: React.FC = () => {
                             </Select>
                         </Col>
                         <Col span={4} style={{ textAlign: 'center', fontSize: 24, marginTop: 24 }}>
-                            ⚔️
+                            So sánh
                         </Col>
                         <Col span={10}>
                             <Text strong>Tài liệu B (Đối chiếu):</Text>

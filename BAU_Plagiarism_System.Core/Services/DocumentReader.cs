@@ -130,12 +130,27 @@ namespace BAU_Plagiarism_System.Core.Services
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 try
                 {
-                    var result = await Task.Run(() =>
+                    var extractionTask = Task.Run(() =>
                     {
                         using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
                             FileShare.Read, 4096, useAsync: true);
                         return ReadText(fs, fileName);
                     }, cts.Token);
+
+                    var delayTask = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
+
+                    var completedTask = await Task.WhenAny(extractionTask, delayTask);
+                    
+                    if (completedTask == delayTask)
+                    {
+                        // Timeout occurred
+                        Console.WriteLine($"[Step2] TIMEOUT sau 30s cho: {filePath}");
+                        return string.Empty;
+                    }
+
+                    // Task.Run completed successfully
+                    cts.Cancel(); // Cancel the delay task
+                    var result = await extractionTask;
 
                     Console.WriteLine($"[Step2] Hoàn thành. Độ dài: {result?.Length ?? 0} ký tự");
                     return result ?? string.Empty;

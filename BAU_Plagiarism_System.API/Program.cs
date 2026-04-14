@@ -9,6 +9,7 @@ using Hangfire.SqlServer;
 using Hangfire.Dashboard;
 
 // ===== GLOBAL CRASH HANDLERS (bắt mọi exception trên mọi thread, kể cả Hangfire) =====
+System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); // Fix cho iTextSharp và lỗi .NET Core không đọc được font Windows-125x
 var crashLogPath = @"C:\crash_log.txt"; // Ghi trực tiếp vào ổ C để dễ kiểm tra
 
 AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
