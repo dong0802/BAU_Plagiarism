@@ -311,6 +311,10 @@ const DocumentListPage: React.FC = () => {
         }
     ];
 
+    const visibleColumns = isStudent
+        ? columns.filter((column) => column.key !== 'isPublic')
+        : columns;
+
     // Responsive table scroll
     const tableScroll = window.innerWidth < 992 ? { x: 900 } : undefined;
 
@@ -499,7 +503,7 @@ const DocumentListPage: React.FC = () => {
                 <Col xs={24} lg={18}>
                     <Card className="glass-card" bordered={false} bodyStyle={{ padding: 0 }}>
                         <Table
-                            columns={columns}
+                            columns={visibleColumns}
                             dataSource={filteredDocs}
                             rowKey="id"
                             loading={loading}
