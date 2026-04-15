@@ -51,7 +51,7 @@ namespace BAU_Plagiarism_System.Data.Models
 
         public bool IsActive { get; set; } = true;
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         [ForeignKey("UserId")]
         public virtual User User { get; set; } = null!;
 

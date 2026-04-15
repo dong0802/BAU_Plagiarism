@@ -450,9 +450,9 @@ namespace BAU_Plagiarism_System.Core.Services
                     hash ^= (byte)' ';
                     hash *= prime;
                 }
-                foreach (char c in words[i])
+                foreach (byte b in Encoding.UTF8.GetBytes(words[i]))
                 {
-                    hash ^= (byte)c;
+                    hash ^= b;
                     hash *= prime;
                 }
             }
@@ -474,8 +474,8 @@ namespace BAU_Plagiarism_System.Core.Services
                 for (int j = 0; j < NGRAM_SIZE; j++)
                 {
                     if (j > 0) h = FnvStep(h, (byte)' ');
-                    foreach (char c in words[i + j])
-                        h = FnvStep(h, (byte)c);
+                    foreach (byte b in Encoding.UTF8.GetBytes(words[i + j]))
+                        h = FnvStep(h, b);
                 }
                 gramSet.Add(h);
             }

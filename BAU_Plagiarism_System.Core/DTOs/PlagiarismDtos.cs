@@ -48,9 +48,6 @@ namespace BAU_Plagiarism_System.Core.DTOs
         public string Status { get; set; } = "Completed";
         public DateTime CheckDate { get; set; }
 
-        // Daily limits info
-        public int RemainingChecksToday { get; set; }
-        public int DailyCheckLimit { get; set; }
     }
 
     public class MatchDetailDto

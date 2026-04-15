@@ -41,21 +41,9 @@ namespace BAU_Plagiarism_System.Core.Services
             if (sourceDoc == null)
                 throw new Exception("Không tìm thấy tài liệu nguồn");
 
-            // Kiểm tra giới hạn hàng ngày
+            // Xác thực người dùng thực hiện kiểm tra
             var user = await _context.Users.FindAsync(userId);
             if (user == null) throw new Exception("Không tìm thấy người dùng");
-
-            // Đặt lại bộ đếm nếu là ngày mới
-            if (user.LastCheckResetDate == null || user.LastCheckResetDate.Value.Date < DateTime.Now.Date)
-            {
-                user.ChecksUsedToday = 0;
-                user.LastCheckResetDate = DateTime.Now;
-            }
-
-
-            // Tăng số lượt kiểm tra
-            user.ChecksUsedToday++;
-            await _context.SaveChangesAsync();
 
             // Tạo bản ghi kiểm tra đạo văn
             var plagiarismCheck = new PlagiarismCheck
@@ -75,9 +63,7 @@ namespace BAU_Plagiarism_System.Core.Services
             return new PlagiarismCheckResultDto
             {
                 CheckId = plagiarismCheck.Id,
-                Status = "Processing",
-                RemainingChecksToday = user.DailyCheckLimit - user.ChecksUsedToday,
-                DailyCheckLimit = user.DailyCheckLimit
+                Status = "Processing"
             };
         }
 

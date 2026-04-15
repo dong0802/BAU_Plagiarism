@@ -8,7 +8,7 @@ import plagiarismApi from '../api/plagiarismApi';
 import qualityApi, { DocumentQualityAnalysis } from '../api/qualityApi';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { updateCredits, logout } from '../store/slices/authSlice';
+import { logout } from '../store/slices/authSlice';
 import QualityAnalysisModal from '../components/QualityAnalysisModal';
 
 const { Dragger } = Upload;
@@ -646,11 +646,6 @@ const PlagiarismCheckPage: React.FC = () => {
             setTimeout(() => {
                 setCurrentStep(2);
                 fetchHistory(); // Refresh history
-                // Update global credits state
-                dispatch(updateCredits({
-                    remainingChecksToday: checkResult.remainingChecksToday,
-                    dailyCheckLimit: checkResult.dailyCheckLimit
-                }));
             }, 500);
         } catch (error: any) {
             console.error('Analysis error:', error);
@@ -895,10 +890,6 @@ const PlagiarismCheckPage: React.FC = () => {
             setTimeout(() => {
                 setCurrentStep(2);
                 fetchHistory();
-                dispatch(updateCredits({
-                    remainingChecksToday: checkResult.remainingChecksToday,
-                    dailyCheckLimit: checkResult.dailyCheckLimit
-                }));
             }, 600);
         } catch (error: any) {
             clearInterval(interval);

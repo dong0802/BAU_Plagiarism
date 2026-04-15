@@ -35,7 +35,7 @@ namespace BAU_Plagiarism_System.Data.Models
 
         public DateTime? UpdatedDate { get; set; }
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         [ForeignKey("DepartmentId")]
         public virtual Department Department { get; set; } = null!;
 

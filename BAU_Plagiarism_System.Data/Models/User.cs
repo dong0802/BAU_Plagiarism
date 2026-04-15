@@ -63,7 +63,7 @@ namespace BAU_Plagiarism_System.Data.Models
         public int ChecksUsedToday { get; set; } = 0; // Số lượt đã sử dụng hôm nay
         public DateTime? LastCheckResetDate { get; set; } // Ngày reset lần cuối
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         [ForeignKey("FacultyId")]
         public virtual Faculty? Faculty { get; set; }
 

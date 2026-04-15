@@ -16,8 +16,6 @@ export interface PlagiarismCheckResultDto {
     };
     status: string;
     checkDate: string;
-    remainingChecksToday: number;
-    dailyCheckLimit: number;
 }
 
 export interface PlagiarismStatisticsDto {

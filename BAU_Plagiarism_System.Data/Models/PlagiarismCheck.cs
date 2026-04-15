@@ -33,7 +33,7 @@ namespace BAU_Plagiarism_System.Data.Models
         public string? Notes { get; set; }
 
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         [ForeignKey("SourceDocumentId")]
         public virtual Document SourceDocument { get; set; } = null!;
 

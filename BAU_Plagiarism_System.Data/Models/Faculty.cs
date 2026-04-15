@@ -29,7 +29,7 @@ namespace BAU_Plagiarism_System.Data.Models
 
         public DateTime? UpdatedDate { get; set; }
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         public virtual ICollection<Department> Departments { get; set; } = new List<Department>();
         public virtual ICollection<User> Users { get; set; } = new List<User>();
     }

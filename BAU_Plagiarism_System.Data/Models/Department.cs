@@ -33,7 +33,7 @@ namespace BAU_Plagiarism_System.Data.Models
 
         public DateTime? UpdatedDate { get; set; }
 
-        // Navigation Properties
+        // Thuộc tính điều hướng
         [ForeignKey("FacultyId")]
         public virtual Faculty Faculty { get; set; } = null!;
 
